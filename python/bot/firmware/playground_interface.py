@@ -75,7 +75,6 @@ class BotServerEndpoint(BotChaperoneConnection):
             raise Exception("Not yet connected to chaperone")
         listenPort = self.Muxer().listen(self.__listeningPort, factory)
         logger.debug("Listening on port %d" % listenPort)
-        print "listening on port %d" % listenPort
         
     def close(self):
         self.Muxer().clearReservation(self.__listeningPort)
@@ -166,7 +165,6 @@ class BotMuxer(ChaperoneDemuxer):
     
     def handleData(self, srcAddress, srcPort, dstPort, connectionData, fullPacket):
         try:
-            print "here"
             logger.debug("Passing %d len packet to handler %s" % (len(fullPacket), connectionData.protocol))
             connectionData.protocol.dataReceived(fullPacket)
         except Exception, e:

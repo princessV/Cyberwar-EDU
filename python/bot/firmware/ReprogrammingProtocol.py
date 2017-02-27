@@ -3,11 +3,13 @@ Created on Feb 17, 2017
 
 @author: sethjn
 '''
+
+from ..common.network import ReprogrammingRequest, ReprogrammingResponse
+from ..common.util import FingerPrint
+
 from twisted.internet.protocol import Protocol
 from playground.network.common.Protocol import MessageStorage
-from ReprogrammingRequest import CURRENT_VERSION as ReprogrammingRequest
-from ReprogrammingResponse import CURRENT_VERSION as ReprogrammingResponse
-from util import FingerPrint
+
 from playground.network.common.Timer import OneshotTimer
 
 class ReprogrammingProtocol(Protocol):
