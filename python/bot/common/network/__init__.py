@@ -1,0 +1,3 @@
+
+from ReprogrammingRequest import CURRENT_VERSION as ReprogrammingRequest
+from ReprogrammingResponse import CURRENT_VERSION as ReprogrammingResponse
