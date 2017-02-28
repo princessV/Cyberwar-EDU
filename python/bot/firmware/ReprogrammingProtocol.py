@@ -16,6 +16,14 @@ class ReprogrammingProtocol(Protocol):
     def __init__(self):
         self.__storage = MessageStorage(ReprogrammingRequest)
         
+    def connectionMade(self):
+        Protocol.connectionMade(self)
+        self.factory.setCurrentConnection(self)
+        
+    def connectionLost(self):
+        Protocol.connectionLost(self)
+        self.factory.setCurrentConnection(None)
+        
     def dataReceived(self, data):
         self.__storage.update(data)
         for message in self.__storage.iterateMessages():

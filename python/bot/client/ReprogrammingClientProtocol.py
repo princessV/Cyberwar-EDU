@@ -10,14 +10,15 @@ from ..common.util import InsertChecksum
 from twisted.internet.protocol import Protocol
 from playground.network.common.Protocol import MessageStorage
 from twisted.internet.defer import Deferred
-from playground.twisted.endpoints.GateEndpoint import GateClientEndpoint
+from playground.twisted.endpoints.GateEndpoint import GateClientEndpoint, PlaygroundNetworkSettings
 from twisted.internet import reactor
 from twisted.internet.endpoints import connectProtocol
 
 # these are playground utils
-from utils.ui import CLIShell, stdio
+from playground.utils.ui import CLIShell, stdio
+from playground import playgroundlog
 
-import sys, os
+import sys, os, traceback
 try:
     import ProtocolStack
 except:
@@ -131,8 +132,11 @@ class ReprogrammingShellProtocol(CLIShell):
             self.prompt = self.PROMPT
         self.__connectPort = port
         
-        stack = port == self.ADV_PORT and ProtocolStack or None
-        playgroundEndpoint = GateClientEndpoint.CreateFromConfig(reactor, self.__botAddress, port, networkStack=stack)
+        
+        networkSettings = PlaygroundNetworkSettings()
+        networkSettings.stack = port == self.ADV_PORT and ProtocolStack or None
+        playgroundEndpoint = GateClientEndpoint(reactor, self.__botAddress, port, networkSettings)
+        
         self.transport.write("Got Endpoint\n")
         reprogrammingProtocol = ReprogrammingClientProtocol()
         self.transport.write("Got protocol. Trying to connect\n")
@@ -148,10 +152,13 @@ class ReprogrammingShellProtocol(CLIShell):
         for serverString in data:
             self.transport.write("\t%s\n" % serverString)
             
-    def handleError(self, *args):
-        self.transport.write("Something went wrong\n", args)
+    def handleError(self, failure):
+        self.transport.write("Something went wrong: %s\n" % failure)
+        # swallow error
     
 if __name__=="__main__":
     address = sys.argv[1]
+    playgroundlog.Config.enableLogging()
+    playgroundlog.Config.enableHandler(playgroundlog.Config.STDERR_HANDLER)
     stdio.StandardIO(ReprogrammingShellProtocol(address))    
     reactor.run()

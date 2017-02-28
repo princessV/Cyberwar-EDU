@@ -28,21 +28,22 @@ class DummyAPI(object):
         return True, "On the railroad. All day."
 
 class PlaygroundSocketProtocol(Protocol):
-    def __init__(self, addr, port):
-        self.__playgroundAddress = addr
-        self.__playgroundPort = port
+    def __init__(self):
         self.__messages = []
         self.__connected = False
         self.__lock = RLock()
         
     def dataReceived(self, data):
         with self.__lock:
-            self.messages.append(data)
+            self.__messages.append(data)
         
     def connectionMade(self):
+        print self, "connectionMade"
         with self.__lock:
             self.__connected = True
-        self.__stateChangeListener.connectionMade(self.transport)
+        Protocol.connectionMade(self)
+        print "done with connection made"
+        #self.__stateChangeListener.connectionMade(self.transport)
         
     def close(self):
         reactor.callFromThread(self.transport.loseConnection)
@@ -50,7 +51,8 @@ class PlaygroundSocketProtocol(Protocol):
     def connectionLost(self, reason=connectionDone):
         with self.__lock:
             self.__connected = False
-        self.__stateChangeListener.connectionLost(reason)
+        #self.__stateChangeListener.connectionLost(reason)
+        Protocol.connectionLost(self, reason)
         
     def write(self, data):
         reactor.callFromThread(self.transport.write, data)
@@ -65,8 +67,9 @@ class PlaygroundSocketProtocol(Protocol):
             if self.__messages: return self.__messages.pop(0)
             return None
         
-    def connected(self):
+    def checkConnected(self):
         with self.__lock:
+            print "returnning connected"
             return self.__connected
 
     
@@ -76,15 +79,20 @@ class PlaygroundSocketProtocolFactory(Factory):
 class PlaygroundOutboundSocket(object):
     
     PROTOCOL_STACK = None
+    ORIGIN = None
     
     def __init__(self):
         self.__protocol = None
-        self.__key = random.randint(2**64)
+        self.__key = random.randint(0, (2**64)-1)
         
     def __connectCallback(self, protocol):
+        print "connect callback", protocol
         self.__protocol = protocol
     
     def connect(self, addr, port):
+        if addr == "ORIGIN_SERVER":
+            if self.ORIGIN: addr = self.ORIGIN
+            else: raise Exception("No Origin Server Specified")
         endpoint = BotClientEndpoint(addr, port)
         if self.PROTOCOL_STACK:
             stack = self.PROTOCOL_STACK.Stack(PlaygroundSocketProtocolFactory())
@@ -103,12 +111,13 @@ class PlaygroundOutboundSocket(object):
         return len(data)
     
     def close(self):
-        if self.__protocol and self.__protocol.connected():
+        if self.__protocol and self.__protocol.checkConnected():
             self.__protocol.close() 
             self.__protocol = None
     
     def connected(self):
-        if self.__protocol: return self.__protocol.connected()
+        if self.__protocol: 
+            return self.__protocol.checkConnected()
         return False
     
     def ready(self):

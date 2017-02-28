@@ -7,7 +7,6 @@ Created on Feb 17, 2017
 
 import os, sys, logging, threading
 
-from . import BotProgrammingPath
 from ..common.util import ReloadableImportManager, ExitReactorWithStatus
 
 from playground_interface import BotChaperoneConnection, BotServerEndpoint
@@ -23,6 +22,8 @@ from playground import playgroundlog
 from playground.twisted.error.ErrorHandlers import TwistedShutdownErrorHandler
 from playground.crypto import CertFactory as CertFactoryRegistrar
 from playground.network.message import MessageRegistry
+import traceback
+import time
 
 # Allow duplicate messages to overwrite, because of reprogramming
 MessageRegistry.REPLACE_DUPLICATES = True
@@ -37,7 +38,8 @@ def StoreErrorToManager(f):
         try:
             success, msg = f(self, *args, **kargs)
         except Exception, e:
-            logger.error("Data Manager error: %s" % e)
+            tb = traceback.format_exc()
+            logger.error("Data Manager error: %s\n%s" % (e,tb))
             self.manager.lastException = str(e)
             return False, "Operation failed: %s" % e
         if not success:
@@ -54,12 +56,12 @@ class RawDataLoader(object):
         self.postOperation = f
         
     @StoreErrorToManager
-    def load(self):
+    def load(self, reprogrammed=False):
         filename = self.manager.manifest[0]
         with open(os.path.join(ReprogrammableData.CodeDir, filename)) as f:
             self.manager.value = f.read().strip()
         if self.postOperation:
-            self.postOperation(self)
+            self.postOperation(self, reprogrammed)
         return True, "Loaded Data Value"
             
     @StoreErrorToManager
@@ -74,6 +76,7 @@ class PythonModuleLoader(object):
         self.manager = manager
         self.moduleName = moduleName
         self.postOperation = None
+        self.__dirty = False
         
     def setPostLoadOperation(self, f):
         self.postOperation = f
@@ -84,8 +87,9 @@ class PythonModuleLoader(object):
         newModule = importer.forceImport(self.moduleName)
         self.manager.value = newModule
         if self.postOperation:
-            self.postOperation(self)
+            self.postOperation(self, self.__dirty)
         logger.debug("Module %s loaded" % self.moduleName)
+        self.__dirty = False
         return True, "Loaded Module %s" % self.moduleName
     
     @StoreErrorToManager
@@ -100,11 +104,12 @@ class PythonModuleLoader(object):
         for requiredFile in self.manager.manifest:
             if not os.path.exists(os.path.join(ReprogrammableData.CodeDir, requiredFile)):
                 return False, "Failed to reprogram %s because it failed to create required file %s"% (self.moduleName, requiredFile)
+        self.__dirty = True
         return True, "%s updated successfully" % self.moduleName
 
 class ReprogrammableData(object):
     
-    CodeDir = BotProgrammingPath
+    CodeDir = "."
     
     class DataManager(object):
         def __init__(self):
@@ -183,18 +188,25 @@ class Controller(Factory):
     def __init__(self):
         
         self.__botData = ReprogrammableData()
-        self.__botData.address.loader.setPostLoadOperation(lambda *args: self.__restartNetwork())
+        
+        # bootstrap data. Load these now. All the other operations is after we're connected to the chaperone
+        self.__botData.address.loader.load()
+        self.__botData.password.loader.load()
+        
+        # Now set postLoad operations. Almost all of these require that the Chaperone is connected
+        self.__botData.address.loader.setPostLoadOperation(lambda loader, dirty: dirty and self.__restartNetwork())
         self.__botData.certFactory.loader.setPostLoadOperation(lambda *args: self.__reloadCertificates())
         self.__botData.protocolStack.loader.setPostLoadOperation(lambda *args: self.__restartNetwork(raw=False))
-        self.__botData.brain.loader.setPostLoadOperation(self.__loadBrain)
+        self.__botData.brain.loader.setPostLoadOperation(self.__handleBrainReload)
         
         self.__brainThread = None
 
         self.__rawEndpoint = None
         self.__advEndpoint = None
         
-        # DO NOT CALL UNTIL END OF CONSTRUCTOR
-        self.__botData.loadAllModules()
+        self.__currentConnection = None
+        self.__connectedToChaperone = False
+
         
     def __errorHandler(self, *args):
         print "Controller Failed", args
@@ -202,9 +214,19 @@ class Controller(Factory):
         
     def __startReprogrammingProtocol(self, chaperoneProtocol):
         logger.info("Chaperone Connected. Start up reporgramming protocol")
+        self.__connectedToChaperone = True
+        
         self.__restartNetwork()
         
+        # Shouldn't load our modules until chaperone connected
+        # Some moules may restart the network, but that's ok
+        self.__botData.loadAllModules()
+        
+        
     def __restartNetwork(self, raw=True, advPort=True):
+        if not self.__connectedToChaperone:
+            logger.info("Could not start network (yet). Still waiting on Chaperone")
+            return
         stack = self
         if raw:
             self.__rawEndpoint = self.__restartNetworkServer(self.__rawEndpoint, self.RAW_PORT, stack)
@@ -225,6 +247,20 @@ class Controller(Factory):
         CertFactoryRegistrar.setImplementation(self.__botData.certFactory())
         self.__restartNetwork(raw = False)
         
+    def __handleBrainReload(self, loader, moduleIsDirty):
+        if moduleIsDirty:
+            self.__loadBrainFromNetwork()
+        else:
+            self.__loadBrain()
+        
+    def __loadBrainFromNetwork(self):
+        if not self.__currentConnection or not self.__currentConnection.transport:
+            raise Exception("Cannot load brain from network without a network connection")
+        brainOriginFile = os.path.join(ReprogrammableData.CodeDir, "brain_origin.txt")
+        with open(brainOriginFile, "w+") as f:
+            f.write(str(self.__currentConnection.transport.getPeer().host))
+        self.__loadBrain()
+        
     def __loadBrain(self):
         if self.__brainThread and self.__brainThread.isAlive():
             self.__botData.brain().stop()
@@ -236,16 +272,25 @@ class Controller(Factory):
                 reactor.callLater(0.0, ExitReactorWithStatus, reactor, 100) 
         
         threadCtx = GameLoopCtx()
+        brainOriginFile = os.path.join(ReprogrammableData.CodeDir, "brain_origin.txt")
+        if not os.path.exists(brainOriginFile):
+            logger.info("Virgin Birthed Brain. No Origin. Any calls to connect to ORIGIN will fail.")
+        else:
+            with open(brainOriginFile) as f:
+                threadCtx.socket.ORIGIN = f.read().strip()
+
         self.__brainThread = threading.Thread(target = self.__botData.brain().gameloop, args=(threadCtx,))
-        self.__brainThread.setDaemon(daemonic=True)
-        self.__brainThread.run()
+        self.__brainThread.daemon=True
+        logger.info("Starting brain thread")
+        self.__brainThread.start()
+        reactor.callLater(2.0, logger.info, "Call after starting thread?")
         
     def connectToChaperone(self, chaperoneAddr, chaperonePort):
         logger.info("Connecting to chaperone at %s::%d" % (chaperoneAddr, chaperonePort))
         
         addressString = self.__botData.address()
         if not addressString:
-            addressString = "20171.666.666.666"
+            addressString = "666.666.666.666"
         address = PlaygroundAddress.FromString(addressString)
         d = BotChaperoneConnection.ConnectToChaperone(reactor, chaperoneAddr, chaperonePort, address)
         
@@ -267,20 +312,38 @@ class Controller(Factory):
         
     def reload(self):
         self.__restartNetwork(raw=False)
+        
+    def setCurrentConnection(self, conn):
+        self.__currentConnection = conn
+        
+    def buildProtocol(self, addr):
+        if not self.__currentConnection:
+            self.__currentConnection = Factory.buildProtocol(self, addr)
+            return self.__currentConnection
+        return None
     
 if __name__=="__main__":
     print "Starting Bot Controller"
     
-    logctx = playgroundlog.LoggingContext("bot_controller")
     logging.getLogger("").setLevel("INFO")
     
     # Uncomment the next line to turn on "packet tracing"
     #logctx.doPacketTracing = True
     
-    playgroundlog.startLogging(logctx)
-    playgroundlog.UseStdErrHandler(True)
+    playgroundlog.Config.enableLogging()
+    playgroundlog.Config.enableHandler(playgroundlog.Config.STDERR_HANDLER)
     
-    chaperoneAddress, chaperonePort = sys.argv[1:]
+    args = []
+    opts = {"--chaperone-addr":"127.0.0.1",
+            "--chaperone-port":"9090"}
+    for arg in sys.argv[1:]:
+        if arg.startswith("-"):
+            k,v = arg.split("=")
+            opts[k]=v
+        else:
+            args.append(arg)
+    
+    chaperoneAddress, chaperonePort = opts["--chaperone-addr"], opts["--chaperone-port"]
     chaperonePort = int(chaperonePort)
     controller = Controller()
     controller.connectToChaperone(chaperoneAddress, chaperonePort)

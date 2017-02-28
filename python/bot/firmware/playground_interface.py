@@ -15,6 +15,7 @@ from playground.network.gate.ChaperoneProtocol import ChaperoneProtocol
 from twisted.internet.endpoints import TCP4ClientEndpoint, connectProtocol
 from twisted.internet.defer import Deferred
 from playground.network.gate.ChaperoneDemuxer import ChaperoneDemuxer, Port
+from twisted.internet import reactor
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class BotChaperoneConnection(object):
         
     @classmethod
     def Chaperone(cls):
-        return cls.__muxer.chaperone
+        return cls.__muxer and cls.__muxer.chaperone or None
     
     @classmethod
     def Muxer(cls):
@@ -48,18 +49,22 @@ class BotClientEndpoint(BotChaperoneConnection):
         
     def __connectionMadeCallback(self, protocol):
         # logger "protocol connected"
+        print "protocol connected from botclietnendpoint", protocol
         if isinstance(protocol, StackingProtocolMixin) and protocol.higherProtocol():
             d = protocol.waitForHigherConnection()
-            d.addCallback(protocol)
+            d.addCallback(self.__connectedD.callback)
         else:
             self.__connectedD.callback(protocol)
     
     def connect(self, factory):
         if not self.Chaperone():
             raise Exception("Not yet connected to chaperone")
-        connectProtocol = factory.buildProtocol(self.__srcAddr)
+        print factory, factory.protocol
+        connectProtocol = factory.buildProtocol(None)
         self.Muxer().connect(self.__playgroundServerAddr, self.__playgroundServerPort, connectProtocol)
-        self.__connectedD.addCallback(self.__connectionMadeCallback)
+        
+        # todo: ensure that we got a port. But otherwise, we always callback that we connected.
+        reactor.callFromThread(self.__connectionMadeCallback, connectProtocol)
         return self.__connectedD
     
 class BotServerEndpoint(BotChaperoneConnection):
@@ -87,6 +92,7 @@ class BotTransport(object):
         self.__dstAddr, self.__dstPort = dstAddr, dstPort
         
     def write(self, data):
+        print "writing %d bytes of data to %s:%d" % (len(data), self.__dstAddr, self.__dstPort)
         if not self.__muxer: return
         self.__muxer.chaperone.send(self.__srcPort, self.__dstAddr, self.__dstPort, data)
         
@@ -156,11 +162,12 @@ class BotMuxer(ChaperoneDemuxer):
         return listenPort
     
     def connect(self, dstAddr, dstPort, protocol):
+        print "connecting muxer to", dstAddr, dstPort, protocol
         nextPort = self.getFreeSrcPort()
 
         portObject = BotOutgoingPort(nextPort, dstAddr, dstPort, protocol)
         self.reservePort(nextPort, portObject)
-        protocol.makeConnection(BotTransport(self.chaperone.gateAddress(), nextPort, dstAddr, dstPort, self.chaperone, self))
+        reactor.callFromThread(lambda: protocol.makeConnection(BotTransport(self.chaperone.gateAddress(), nextPort, dstAddr, dstPort,  self)))
         return nextPort
     
     def handleData(self, srcAddress, srcPort, dstPort, connectionData, fullPacket):
