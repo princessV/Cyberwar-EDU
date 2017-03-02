@@ -18,10 +18,11 @@ from twisted.internet.endpoints import connectProtocol
 from playground.utils.ui import CLIShell, stdio
 from playground import playgroundlog
 
-import sys, os, traceback
+import sys, os, traceback, getpass
 try:
     import ProtocolStack
 except:
+    print "WARNING, NO PROTOCOL STACK. RAW COMMUNICATIONS ONLY"
     ProtocolStack = None
 
 
@@ -37,9 +38,11 @@ class ReprogrammingClientProtocol(Protocol):
         
     def dataReceived(self, data):
         self.__storage.update(data)
+        print "received", len(data), "bytes from", self.transport.getPeer()
         for message in self.__storage.iterateMessages():
             if not self.__requests.has_key(message.RequestId):
                 continue
+            print "getting callback for requestId", message.RequestId
             d = self.__requests[message.RequestId]
             d.callback(message.Data)
         
@@ -66,6 +69,17 @@ class ReprogrammingClientProtocol(Protocol):
         self.transport.write(req.__serialize__())
         return self.__requests[req.RequestId]
     
+    def status(self, password, *subsystems):
+        subsystems = map(ReprogrammingRequest.SUBSYSTEMS.index, subsystems)
+        req = ReprogrammingRequest(RequestId =self.__nextId(),
+                                   Opcode    =1,
+                                   Subsystems=subsystems,
+                                   Data      =[])
+        InsertChecksum(req, password=password)
+        self.__requests[req.RequestId] = Deferred()
+        self.transport.write(req.__serialize__())
+        return self.__requests[req.RequestId]
+    
     
 class ReprogrammingShellProtocol(CLIShell):
     PROMPT = "[NOT CONNECTED] >>"
@@ -78,6 +92,7 @@ class ReprogrammingShellProtocol(CLIShell):
         self.__botAddress = botAddress
         self.__connectPort = self.RAW_PORT
         self.__protocol = None
+        self.__password = "222222"
         
     def connectionMade(self):
         self.connectToBot(self.__connectPort)
@@ -96,7 +111,7 @@ class ReprogrammingShellProtocol(CLIShell):
         if subsystem not in ReprogrammingRequest.SUBSYSTEMS:
             self.transport.write("Unknown subsystem %s. Options are %s." % (subsystem, ReprogrammingRequest.SUBSYSTEMS))
             return
-        if subsystem in ["rPASSWORD", "ADDRESS"]:
+        if subsystem in ["PASSWORD", "ADDRESS"]:
             dataToSend = reprogramArgument
         else:
             if not os.path.exists(reprogramArgument):
@@ -106,17 +121,38 @@ class ReprogrammingShellProtocol(CLIShell):
             with open(reprogramArgument) as f:
                 dataToSend = f.read()
         writer("Sending %d byte program to subsystem %s\n" % (len(dataToSend), subsystem))
-        d = self.__protocol.reprogram("222222", subsystem, dataToSend)
+        d = self.__protocol.reprogram(self.__password, subsystem, dataToSend)
         d.addCallback(self.handleResponse)
+        
+    def __checkStatus(self, writer, *args):
+        if not self.__protocol:
+            writer("Not yet connected. Cannot reprogram\n")
+            return 
+        subsystems = list(args)
+        for subsystem in subsystems:
+            if subsystem not in ReprogrammingRequest.SUBSYSTEMS:
+                self.transport.write("Unknown subsystem %s. Options are %s." % (subsystem, ReprogrammingRequest.SUBSYSTEMS))
+                return
+        d = self.__protocol.status(self.__password, *subsystems)
+        d.addCallback(self.handleResponse)
+        
+    def __changePassword(self, writer, *args):
+        if args:
+            writer("Change password takes no arguments.\n")
+        self.__password = getpass.getpass("Enter new bot password: ")
+        
+        writer("Password changed successfully.\n")
         
     def __loadCommands(self):
         toggleCommandHandler = CLIShell.CommandHandler("toggle","Toggle between raw and advanced connection",self.__toggleConnection)
-        reprogramCommandHandler = CLIShell.CommandHandler("reprogram", "Reprogram the bot's subsystems", 
-                                                          mode=CLIShell.CommandHandler.SINGLETON_MODE,
-                                                          defaultCb=self.__reprogram)
+        reprogramCommandHandler = CLIShell.CommandHandler("reprogram", "Reprogram the bot's subsystems", defaultCb=self.__reprogram)
+        getstatusCommandHandler = CLIShell.CommandHandler("status", "Get the bot's subsystems' status", defaultCb=self.__checkStatus)
+        changePasswordCommandHandler = CLIShell.CommandHandler("passwd", "Change the bot's password", defaultCb=self.__changePassword)
         
         self.registerCommand(toggleCommandHandler)
         self.registerCommand(reprogramCommandHandler)
+        self.registerCommand(getstatusCommandHandler)
+        self.registerCommand(changePasswordCommandHandler)
         
     def __toggleConnection(self, writer):
         if self.__connectPort == self.RAW_PORT:
@@ -134,7 +170,7 @@ class ReprogrammingShellProtocol(CLIShell):
         
         
         networkSettings = PlaygroundNetworkSettings()
-        networkSettings.stack = port == self.ADV_PORT and ProtocolStack or None
+        networkSettings.configureNetworkStack(port == self.ADV_PORT and ProtocolStack or None)
         playgroundEndpoint = GateClientEndpoint(reactor, self.__botAddress, port, networkSettings)
         
         self.transport.write("Got Endpoint\n")
@@ -151,9 +187,11 @@ class ReprogrammingShellProtocol(CLIShell):
         self.transport.write("Received response from server.\n")
         for serverString in data:
             self.transport.write("\t%s\n" % serverString)
+        self.refreshInterface()
             
     def handleError(self, failure):
         self.transport.write("Something went wrong: %s\n" % failure)
+        self.refreshInterface()
         # swallow error
     
 if __name__=="__main__":

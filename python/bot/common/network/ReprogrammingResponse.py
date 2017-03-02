@@ -15,7 +15,7 @@ class ReprogrammingResponse_v1_0(MessageDefinition):
     REPROGRAMMING_SUCCESSFUL_TEMPLATE = "200. Reprogramming Successful (MD5=%(MD5)s) for subsystem %(SUBSYSTEM)s. Server Reported: %(MSG)s"
     REPROGRAMMING_FAILED_TEMPLATE = "300. Reprogramming Failed for subsystem %(SUBSYSTEM)s. Server Reported: %(MSG)s"
     
-    STATUS_CHECK_TEMPLATE = "400. Status Check for subsystem %(SUBSYSTEM)s. MD5=%(MD5)s. Server Reported: % (MSG)s"
+    STATUS_CHECK_TEMPLATE = "400. Status Check for subsystem %(SUBSYSTEM)s. MD5=%(MD5)s. Server Reported: %(MSG)s"
     
                   
     PLAYGROUND_IDENTIFIER = "cyberward.botinterface.ReprogrammingResponse"

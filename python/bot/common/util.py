@@ -28,7 +28,8 @@ class ReloadableImportManager(object):
     def forceImport(self, name, path=None):
         if self.__imports.has_key(name):
             for dependentModule in self.__imports[name]:
-                del sys.modules[dependentModule]
+                if sys.modules.has_key(dependentModule):
+                    del sys.modules[dependentModule]
         dependentModules = []
         currentLoad = sys.modules.keys()
         fp, pathname, desc = imp.find_module(name, path)

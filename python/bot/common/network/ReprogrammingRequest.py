@@ -16,8 +16,8 @@ class ReprogrammingRequest_v1_0(MessageDefinition):
                   "CERT_FACTORY",
                   "PROTOCOL_STACK",
                   "ADDRESS",
-                  "rWHITE_LIST",
-                  "rPASSWORD",
+                  "PREDICATE",
+                  "PASSWORD",
                   "BRAIN"
                   ]
                   

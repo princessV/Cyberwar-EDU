@@ -6,6 +6,7 @@ from playground.twisted.endpoints import GateServerEndpoint, GateClientEndpoint,
 import time, traceback, logging
 from twisted.internet.protocol import Factory, Protocol
 from twisted.internet import reactor
+from twisted.internet.defer import Deferred
 
 class CommandAndControlRequest(MessageDefinition):
     PLAYGROUND_IDENTIFIER = "my.commandandcontrol.message"
@@ -15,6 +16,9 @@ class CommandAndControlRequest(MessageDefinition):
     COMMAND_MOVE = 1
     COMMAND_LOOK = 2
     COMMAND_WORK = 4
+    COMMAND_UNLOAD = 5
+    COMMAND_INVENTORY = 6
+    COMMAND_LOCATION = 7
     
     BODY = [("reqType", UINT1),
             ("ID", UINT4),
@@ -35,124 +39,197 @@ class RemoteWorkerBrain(object):
     
     def stop(self):
         self.__running = False
+    
+    def processRequest(self, ctx, msg):
+        if msg.reqType == CommandAndControlRequest.COMMAND_NOOP:
+            result = True
+            resultMessage = "Heartbeat"
+            
+        elif msg.reqType == CommandAndControlRequest.COMMAND_MOVE:
+            direction = msg.parameters[0]
+            if len(msg.parameters) > 1:
+                count = int(msg.parameters[1])
+                if count < 1:
+                    raise Exception("Cannot move less than 1 times")
+            else: count = 1
+            
+            # use blocking to make sure each move completes before the next one
+            if count > 1: ctx.api.setBlocking(True)
+            for i in range(count-1):
+                result, resultMessage = ctx.api.move(direction)  # convert to int if necessary
+                yield result, resultMessage
+            # this result, resultMessage pair is yielded at the end of the function
+            result, resultMessage = ctx.api.move(direction)
+            ctx.api.setBlocking(False)
+            
+        elif msg.reqType == CommandAndControlRequest.COMMAND_LOOK:
+            # do look, get data, send back
+            result, resultMessage = ctx.api.look()
+            
+        elif msg.reqType == CommandAndControlRequest.COMMAND_WORK:
+            result, resultMessage = ctx.api.work()
         
-    def lastError(self):
-        return self.__lastError
+        elif msg.reqType == CommandAndControlRequest.COMMAND_UNLOAD:
+            result, resultMessage = ctx.api.unload()
+            
+        elif msg.reqType == CommandAndControlRequest.COMMAND_INVENTORY:
+            result, resultMessage = ctx.api.inventory()
+            
+        elif msg.reqType == CommandAndControlRequest.COMMAND_LOCATION:
+            result, resultMessage = ctx.api.location()
+        
+        else:
+            result = False
+            resultMessage = "Unknown request %d" % msg.reqType
+        yield result, resultMessage
     
     def gameloop(self, ctx):
         logger = logging.getLogger(__name__+".RemoteWorkerBrain")
         logger.info("Starting Game Loop")
+
+        self.__running = True
+        cAndC = ctx.socket()
+        logger.info("Connect to %s:10001" % (ctx.socket.ORIGIN))
+        cAndC.connect("ORIGIN_SERVER", 10001)
+        tickCount = 0
         connected = False
-        try:
-            self.__running = True
-            cAndC = ctx.socket()
-            logger.info("Connect to %s:10001" % (ctx.socket.ORIGIN))
-            cAndC.connect("ORIGIN_SERVER", 10001)
-            tickCount = 0
-            messageBuffer = MessageStorage(CommandAndControlRequest)
-            while self.__running:
-                if cAndC.connected():
-                    if not connected:
-                        connected = True
-                        response = CommandAndControlResponse(reqID=0, success=True, message="Heartbeat 0")
-                        cAndC.send(response.__serialize__())
-                    if cAndC.ready():
-                        data = cAndC.recv()
-                        messageBuffer.update(data)
-                        for msg in messageBuffer.iterateMessages():
-                            
-                            if msg.reqType == CommandAndControlRequest.COMMAND_NOOP:
-                                response = CommandAndControlResponse(reqID = msg.ID, success=True, message="Heartbeat")
-                                
-                            elif msg.reqType == CommandAndControlRequest.COMMAND_MOVE:
-                                direction = msg.parameters[0]
-                                result, resultMessage = ctx.api.move(direction)  # convert to int if necessary
-                                response = CommandAndControlResponse(reqID = msg.ID, success=result, message=resultMessage)
-                                
-                            elif msg.reqType == CommandAndControlRequest.COMMAND_LOOK:
-                                # do look, get data, send back
-                                result, resultMessage = ctx.api.look()
-                                response = CommandAndControlResponse(reqID = msg.ID, success=result, message=resultMessage)
-                                
-                            elif msg.reqType == CommandAndControlRequest.COMMAND_WORK:
-                                # do work send back result
-                                pass
-                            
-                            else:
-                                response = CommandAndControlResponse(reqID = msg.ID, success=False, message="Unknown request %d" % msg.reqType)
+        messageBuffer = MessageStorage(CommandAndControlRequest)
+        while self.__running:
+            tickCount += 1
+            if cAndC.connected():
+                if not connected:
+                    connected = True
+                    logger.info("Sending heartbeat at tickcount %d" % tickCount)
+                    response = CommandAndControlResponse(reqID=0, success=True, message="Heartbeat %d" % tickCount)
+                    cAndC.send(response.__serialize__())
+                    
+                data = cAndC.recv(timeout=1)
+                if not data: 
+                    continue
+                
+                messageBuffer.update(data)
+                for msg in messageBuffer.iterateMessages():
+                    try:
+                        for result, resultMessage in self.processRequest(ctx, msg):
+                            response = CommandAndControlResponse(reqID = msg.ID, success=result, message=resultMessage)
                             cAndC.send(response.__serialize__())
-                elif tickCount > 10:
-                    raise Exception("Could not connect to C&C within 10 ticks")
-                tickCount += 1
-                time.sleep(10)
-        except Exception, e:
-            errorString = traceback.format_exc()
-            logger.error("Game Loop Failed: %s" % errorString)
-            self.__lastError = errorString
+                    except Exception, e:
+                        response = CommandAndControlResponse(reqID = msg.ID, success=False, message="Error: %s" % e)
+                        cAndC.send(response.__serialize__())
+            elif tickCount > 10:
+                raise Exception("Could not connect to C&C within 10 ticks")
+            if not cAndC.connected(): time.sleep(1)
 
 class SimpleCommandAndControlProtocol(Protocol):
-    def __init__(self, writer):
-        self.storage = MessageStorage()
-        self.writer = writer
-        self.reqId = 1
+    def __init__(self):
+        self.storage = MessageStorage(CommandAndControlResponse)
         
     def dataReceived(self, data):
         self.storage.update(data)
         for m in self.storage.iterateMessages():
-            status = m.success and "succeeded" or "failed"
-            self.writer("Got Response from Bot. Operation %s. Message: %s\n" % (status, m.message))
-            
-    def move(self, direction):
-        request = CommandAndControlRequest(reqType=CommandAndControlRequest.COMMAND_MOVE,
-                                           ID=self.reqId,
-                                           parameters=[str(direction)])
-        self.reqId += 1
-        self.transport.write(request.__serialize__())
-        
-    def look(self):
-        request = CommandAndControlRequest(reqType=CommandAndControlRequest.COMMAND_LOOK,
-                                           ID=self.reqId, parameters=[])
-        self.reqId += 1
-        self.transport.write(request.__serialize__())
+            self.factory.handleResponse(m)
             
 class SimpleCommandAndControl(CLIShell, Factory):
     def __init__(self):
         CLIShell.__init__(self, prompt="[NOT CONNECTED] >> ")
         self.__protocol = None
+        self.__reqId = 1
+        
+    def __nextId(self):
+        nextId = self.__reqId
+        self.__reqId += 1
+        return nextId
         
     def connectionMade(self):
         moveCommandHandler = CLIShell.CommandHandler("move","Tell the bot to move (1=North, 2=South, 3=East, 4=West)",
                                                      mode=CLIShell.CommandHandler.SINGLETON_MODE,
                                                      defaultCb=self.__sendBotMove)
         lookCommandHandler = CLIShell.CommandHandler("look", "Tell the Bot to scan", self.__sendBotLook)
+        workCommandHandler = CLIShell.CommandHandler("work", "Tell the Bot to work", self.__sendBotWork)
+        inventoryCommandHandler = CLIShell.CommandHandler("inventory", "Get the bot's inventory", self.__sendBotInventory)
+        unloadCommandHandler = CLIShell.CommandHandler("unload", "Tell the Bot to unload inventory", self.__sendBotUnload)
+        locationCommandHandler = CLIShell.CommandHandler("location", "Get the bot's location", self.__sendBotLocation)
         
         self.registerCommand(moveCommandHandler)
         self.registerCommand(lookCommandHandler)
+        self.registerCommand(workCommandHandler)
+        self.registerCommand(unloadCommandHandler)
+        self.registerCommand(locationCommandHandler)
+        self.registerCommand(inventoryCommandHandler)
         
         networkSettings = PlaygroundNetworkSettings()
         networkSettings.configureNetworkStackFromPath("./ProtocolStack")
-        print "Got network stack", networkSettings.networkStack
         playgroundEndpoint = GateServerEndpoint(reactor, 10001, networkSettings)
         playgroundEndpoint.listen(self)
+        
+        self.deferToResponse = Deferred()
+        
+    def handleResponse(self, resp):
+        status = resp.success and "succeeded" or "failed"
+        self.transport.write("Got Response from Bot. Operation %s. Message: %s\n" % (status, resp.message))
+        self.refreshInterface()
         
     def __sendBotMove(self, writer, *args):
         if not self.__protocol:
             writer("No bot connected\n")
             return
-        direction, = args
-        self.__protocol.move(direction)
+        direction = args[0]
+        if len(args) > 1:
+            count = args[1]
+        else:
+            count = "1"
+        request = CommandAndControlRequest(reqType=CommandAndControlRequest.COMMAND_MOVE,
+                                           ID=self.__nextId(),
+                                           parameters=[str(direction), count])
+        self.__protocol.transport.write(request.__serialize__())
         
     def __sendBotLook(self, writer):
         if not self.__protocol:
             writer("No bot connected\n")
             return
-        self.__protocol.look()
+        request = CommandAndControlRequest(reqType=CommandAndControlRequest.COMMAND_LOOK,
+                                           ID=self.__nextId(), parameters=[])
+        self.__protocol.transport.write(request.__serialize__())
+        
+    def __sendBotWork(self, writer, *args):
+        if not self.__protocol:
+            writer("No bot connected\n")
+            return
+        request = CommandAndControlRequest(reqType=CommandAndControlRequest.COMMAND_WORK,
+                                           ID=self.__nextId(), parameters=[])
+        self.__protocol.transport.write(request.__serialize__())
+        
+    def __sendBotInventory(self, writer, *args):
+        if not self.__protocol:
+            writer("No bot connected\n")
+            return
+        request = CommandAndControlRequest(reqType=CommandAndControlRequest.COMMAND_INVENTORY,
+                                           ID=self.__nextId(), parameters=[])
+        self.__protocol.transport.write(request.__serialize__())
+        
+    def __sendBotUnload(self, writer, *args):
+        if not self.__protocol:
+            writer("No bot connected\n")
+            return
+        request = CommandAndControlRequest(reqType=CommandAndControlRequest.COMMAND_UNLOAD,
+                                           ID=self.__nextId(), parameters=[])
+        self.__protocol.transport.write(request.__serialize__())
+        
+    def __sendBotLocation(self, writer, *args):
+        if not self.__protocol:
+            writer("No bot connected\n")
+            return
+        request = CommandAndControlRequest(reqType=CommandAndControlRequest.COMMAND_LOCATION,
+                                           ID=self.__nextId(), parameters=[])
+        self.__protocol.transport.write(request.__serialize__())
+        
         
     def buildProtocol(self, addr):
         print "buildProtocol. Somebody is connecting to us"
         if self.__protocol:
             raise Exception("Currently, this C&C only accepts a single incoming connection")
-        self.__protocol = SimpleCommandAndControlProtocol(self.transport.write)
+        self.__protocol = SimpleCommandAndControlProtocol()
+        self.__protocol.factory = self
         self.transport.write("Got connection from bot\n")
         self.prompt = "[CONNECTED] >> "
         return self.__protocol
@@ -160,7 +237,6 @@ class SimpleCommandAndControl(CLIShell, Factory):
 singleton = RemoteWorkerBrain()
 gameloop = singleton.gameloop
 stop = singleton.stop
-lastError = singleton.lastError
 
 if __name__=="__main__":
     stdio.StandardIO(SimpleCommandAndControl())    

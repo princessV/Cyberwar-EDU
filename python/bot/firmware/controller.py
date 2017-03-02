@@ -7,7 +7,9 @@ Created on Feb 17, 2017
 
 import os, sys, logging, threading
 
-from ..common.util import ReloadableImportManager, ExitReactorWithStatus
+from ..common.util import ExitReactorWithStatus
+
+from ReprogrammableData import ReprogrammableData, RawDataLoader, PythonModuleLoader
 
 from playground_interface import BotChaperoneConnection, BotServerEndpoint
 from ReprogrammingProtocol import ReprogrammingProtocol
@@ -21,162 +23,12 @@ from twisted.internet.protocol import Factory
 from playground import playgroundlog
 from playground.twisted.error.ErrorHandlers import TwistedShutdownErrorHandler
 from playground.crypto import CertFactory as CertFactoryRegistrar
-from playground.network.message import MessageRegistry
+
 import traceback
 import time
-
-# Allow duplicate messages to overwrite, because of reprogramming
-MessageRegistry.REPLACE_DUPLICATES = True
+from bot.firmware.gameloop_interface import PlaygroundOutboundSocket
 
 logger = logging.getLogger(__name__)
-
-importer = ReloadableImportManager()
-
-
-def StoreErrorToManager(f):
-    def Outer(self, *args, **kargs):
-        try:
-            success, msg = f(self, *args, **kargs)
-        except Exception, e:
-            tb = traceback.format_exc()
-            logger.error("Data Manager error: %s\n%s" % (e,tb))
-            self.manager.lastException = str(e)
-            return False, "Operation failed: %s" % e
-        if not success:
-            self.manager.lastException = msg
-        return success, msg
-    return Outer
-
-class RawDataLoader(object):
-    def __init__(self, manager):
-        self.manager = manager
-        self.postOperation = None
-        
-    def setPostLoadOperation(self, f):
-        self.postOperation = f
-        
-    @StoreErrorToManager
-    def load(self, reprogrammed=False):
-        filename = self.manager.manifest[0]
-        with open(os.path.join(ReprogrammableData.CodeDir, filename)) as f:
-            self.manager.value = f.read().strip()
-        if self.postOperation:
-            self.postOperation(self, reprogrammed)
-        return True, "Loaded Data Value"
-            
-    @StoreErrorToManager
-    def unpack(self, data):
-        filename = self.manager.manifest[0]
-        with open(os.path.join(ReprogrammableData.CodeDir, filename), "wb+") as f:
-            f.write(data)
-        return True, "Saved New Data Value"
-            
-class PythonModuleLoader(object):
-    def __init__(self, manager, moduleName, postOperation=None):
-        self.manager = manager
-        self.moduleName = moduleName
-        self.postOperation = None
-        self.__dirty = False
-        
-    def setPostLoadOperation(self, f):
-        self.postOperation = f
-        
-    @StoreErrorToManager
-    def load(self):
-        logger.debug("Trying to load module %s" % self.moduleName)
-        newModule = importer.forceImport(self.moduleName)
-        self.manager.value = newModule
-        if self.postOperation:
-            self.postOperation(self, self.__dirty)
-        logger.debug("Module %s loaded" % self.moduleName)
-        self.__dirty = False
-        return True, "Loaded Module %s" % self.moduleName
-    
-    @StoreErrorToManager
-    def unpack(self, data):
-        tarball = self.moduleName + ".tar.gz"
-        tarballPath = os.path.join(ReprogrammableData.CodeDir, tarball)
-        with open(tarballPath, "wb+") as f:
-            f.write(data)
-        returnCode = os.system("cd %s; tar -xzf %s" % (ReprogrammableData.CodeDir, tarball))
-        if returnCode:
-            return False, "Failed to reprogram %s. Error Code: %d" % (self.moduleName, returnCode)
-        for requiredFile in self.manager.manifest:
-            if not os.path.exists(os.path.join(ReprogrammableData.CodeDir, requiredFile)):
-                return False, "Failed to reprogram %s because it failed to create required file %s"% (self.moduleName, requiredFile)
-        self.__dirty = True
-        return True, "%s updated successfully" % self.moduleName
-
-class ReprogrammableData(object):
-    
-    CodeDir = "."
-    
-    class DataManager(object):
-        def __init__(self):
-            self.value = None
-            self.manifest = []
-            self.loader = None
-            self.lastException = ""
-            
-        def __call__(self):
-            return self.value
-            
-    def __init__(self):
-        self.__programmableModules = {}
-        
-        # REPORGRAMMABLE DATA #1: ADDRESS #
-        self.address = self.DataManager()
-        self.address.manifest.append("address.txt")
-        self.address.loader = RawDataLoader(self.address)
-        self.__programmableModules["ADDRESS"] = self.address
-        
-        # REPROGRAMMABLE DATA #2: PASSWORD #
-        self.password = self.DataManager()
-        self.password.manifest.append("password.txt")
-        self.password.loader = RawDataLoader(self.password)
-        self.__programmableModules["rPASSWORD"] = self.password
-        
-        # REPROGRAMMABLE DATA #3: CERTFACTORY #
-        self.certFactory = self.DataManager()
-        self.certFactory.manifest.append("CertFactory.py")
-        self.certFactory.loader = PythonModuleLoader(self.certFactory, "CertFactory")
-        self.__programmableModules["CERT_FACTORY"] = self.certFactory
-        
-        # REPROGRAMMABLE DATA #4: PROTOCOLSTACK #
-        self.protocolStack = self.DataManager()
-        self.protocolStack.manifest.append("ProtocolStack/__init__.py")
-        self.protocolStack.loader = PythonModuleLoader(self.protocolStack, "ProtocolStack",
-                                                       lambda *args: self.__restartNetwork(raw=False))
-        self.__programmableModules["PROTOCOL_STACK"] = self.protocolStack
-        
-        # REPROGRAMMABLE DATA #5: REPROGRAMPREDICATE #
-        self.rPredicate = self.DataManager()
-        self.rPredicate.manifest.append("RPredicate.py")
-        self.rPredicate.loader = PythonModuleLoader(self.rPredicate, "RPredicate")
-        self.__programmableModules["rPREDICATE"] = self.rPredicate 
-
-        # REPROGRAMMABLE DATA #6: BRAIN #
-        self.brain = self.DataManager()
-        self.brain.manifest.append("Brain/__init__.py")
-        self.brain.loader = PythonModuleLoader(self.brain, "Brain")
-        self.__programmableModules["BRAIN"] = self.brain
-        
-        self.__exceptions = {}
-        
-    def getModuleByName(self, name):
-        return self.__programmableModules.get(name, None)
-        
-    def loadAllModules(self):
-        print "load modules"
-        for module in self.__programmableModules.values():
-            print "loading module", module.loader
-            module.loader.load()
-    
-    def popLastException(self, module):
-        lastException = module.lastException
-        module.lastException = ""
-        return lastException
-
 
 
 class Controller(Factory):
@@ -188,24 +40,58 @@ class Controller(Factory):
     def __init__(self):
         
         self.__botData = ReprogrammableData()
+        self.__defineReloadableModules()
         
         # bootstrap data. Load these now. All the other operations is after we're connected to the chaperone
         self.__botData.address.loader.load()
         self.__botData.password.loader.load()
-        
-        # Now set postLoad operations. Almost all of these require that the Chaperone is connected
-        self.__botData.address.loader.setPostLoadOperation(lambda loader, dirty: dirty and self.__restartNetwork())
-        self.__botData.certFactory.loader.setPostLoadOperation(lambda *args: self.__reloadCertificates())
-        self.__botData.protocolStack.loader.setPostLoadOperation(lambda *args: self.__restartNetwork(raw=False))
-        self.__botData.brain.loader.setPostLoadOperation(self.__handleBrainReload)
         
         self.__brainThread = None
 
         self.__rawEndpoint = None
         self.__advEndpoint = None
         
-        self.__currentConnection = None
         self.__connectedToChaperone = False
+        
+    def __defineReloadableModules(self):
+        # REPORGRAMMABLE DATA #1: ADDRESS #
+        self.__botData.address = self.__botData.createModule("ADDRESS")
+        self.__botData.address.manifest.append("address.txt")
+        self.__botData.address.loader = RawDataLoader(self.__botData.address)
+        
+        # if the address is *reprogrammed* (dirty = True), reconnect to chaperone
+        self.__botData.address.loader.setPostLoadOperation(lambda loader, dirty: dirty and self.reconnectToChaperone())
+        
+        # REPROGRAMMABLE DATA #2: PASSWORD #
+        self.__botData.password = self.__botData.createModule("PASSWORD")
+        self.__botData.password.manifest.append("password.txt")
+        self.__botData.password.loader = RawDataLoader(self.__botData.password)
+        
+        # REPROGRAMMABLE DATA #3: CERTFACTORY #
+        self.__botData.certFactory = self.__botData.createModule("CERT_FACTORY")
+        self.__botData.certFactory.manifest.append("CertFactory.py")
+        self.__botData.certFactory.loader = PythonModuleLoader(self.__botData.certFactory, "CertFactory")
+        self.__botData.certFactory.loader.setPostLoadOperation(lambda *args: self.__reloadCertificates())
+        
+        # REPROGRAMMABLE DATA #4: PROTOCOLSTACK #
+        self.__botData.protocolStack = self.__botData.createModule("PROTOCOL_STACK")
+        self.__botData.protocolStack.manifest.append("ProtocolStack/__init__.py")
+        self.__botData.protocolStack.loader = PythonModuleLoader(self.__botData.protocolStack, "ProtocolStack")
+        
+        # If the protocol stack changes, restart the 667 listener with the new stack
+        self.__botData.protocolStack.loader.setPostLoadOperation(lambda *args: self.__restartNetwork(raw=False))
+        
+        # REPROGRAMMABLE DATA #5: REPROGRAMPREDICATE #
+        self.__botData.predicate = self.__botData.createModule("PREDICATE")
+        self.__botData.predicate.manifest.append("Predicate.py")
+        self.__botData.predicate.loader = PythonModuleLoader(self.__botData.predicate, "Predicate")
+
+        # REPROGRAMMABLE DATA #6: BRAIN #
+        self.__botData.brain = self.__botData.createModule("BRAIN")
+        self.__botData.brain.manifest.append("Brain/__init__.py")
+        self.__botData.brain.loader = PythonModuleLoader(self.__botData.brain, "Brain")
+        self.__botData.brain.loader.setPostLoadOperation(self.__handleBrainReload)
+        self.__botData.brain.status = self.__getBrainStatus
 
         
     def __errorHandler(self, *args):
@@ -224,6 +110,7 @@ class Controller(Factory):
         
         
     def __restartNetwork(self, raw=True, advPort=True):
+        logger.info("Restart network %s %s" % (raw and "Raw" or "", advPort and "Protocol" or ""))
         if not self.__connectedToChaperone:
             logger.info("Could not start network (yet). Still waiting on Chaperone")
             return
@@ -231,8 +118,19 @@ class Controller(Factory):
         if raw:
             self.__rawEndpoint = self.__restartNetworkServer(self.__rawEndpoint, self.RAW_PORT, stack)
         if advPort and self.__botData.protocolStack():
-            stack = self.__botData.protocolStack().ListenFactory.Stack(stack)
-            self.__advEndpoint = self.__restartNetworkServer(self.__advEndpoint, self.ADV_PORT, stack)
+            try:
+                stack = self.__botData.protocolStack().ListenFactory.Stack(stack)
+                self.__advEndpoint = self.__restartNetworkServer(self.__advEndpoint, self.ADV_PORT, stack)
+            except Exception, e:
+                self.__botData.protocolStack.lastException = e
+                
+        if self.__botData.protocolStack():
+            botData = self.__botData
+            print "Setting playground stack to use", botData.protocolStack().ConnectFactory
+            # python appears to be weird about assigning a lambda as a class variable. Turns it into an unbound method. So self is required
+            PlaygroundOutboundSocket.PROTOCOL_STACK = lambda self, *args, **kargs: botData.protocolStack().ConnectFactory.Stack(*args, **kargs)
+        else:
+            PlaygroundOutboundSocket.PROTOCOL_STACK = None
         
     def __restartNetworkServer(self, endpoint, port, stack):
         if endpoint:
@@ -248,18 +146,23 @@ class Controller(Factory):
         self.__restartNetwork(raw = False)
         
     def __handleBrainReload(self, loader, moduleIsDirty):
-        if moduleIsDirty:
-            self.__loadBrainFromNetwork()
-        else:
-            self.__loadBrain()
-        
-    def __loadBrainFromNetwork(self):
-        if not self.__currentConnection or not self.__currentConnection.transport:
-            raise Exception("Cannot load brain from network without a network connection")
-        brainOriginFile = os.path.join(ReprogrammableData.CodeDir, "brain_origin.txt")
-        with open(brainOriginFile, "w+") as f:
-            f.write(str(self.__currentConnection.transport.getPeer().host))
         self.__loadBrain()
+            
+    def __getBrainStatus(self):
+        if self.__botData.brain():
+            return "\nBrain running: %s\nLast exception: %s" % (self.__brainThread and self.__brainThread.isAlive()  or False, 
+                                                              self.__botData.brain.lastException)
+        else:
+            return "Brain Not Loaded"
+
+        
+    def __runGameLoop(self, *args, **kargs):
+        try:
+            self.__botData.brain().gameloop(*args, **kargs)
+        except Exception, e:
+            errorMsg = traceback.format_exc()
+            logger.error("Game loop failed. Reason=%s" % errorMsg)
+            self.__botData.brain.lastException = errorMsg
         
     def __loadBrain(self):
         if self.__brainThread and self.__brainThread.isAlive():
@@ -272,56 +175,55 @@ class Controller(Factory):
                 reactor.callLater(0.0, ExitReactorWithStatus, reactor, 100) 
         
         threadCtx = GameLoopCtx()
-        brainOriginFile = os.path.join(ReprogrammableData.CodeDir, "brain_origin.txt")
-        if not os.path.exists(brainOriginFile):
-            logger.info("Virgin Birthed Brain. No Origin. Any calls to connect to ORIGIN will fail.")
-        else:
-            with open(brainOriginFile) as f:
-                threadCtx.socket.ORIGIN = f.read().strip()
+        threadCtx.socket.ORIGIN = self.__botData.brain.origin
 
-        self.__brainThread = threading.Thread(target = self.__botData.brain().gameloop, args=(threadCtx,))
+        self.__brainThread = threading.Thread(target = self.__runGameLoop, args=(threadCtx,))
         self.__brainThread.daemon=True
         logger.info("Starting brain thread")
         self.__brainThread.start()
         reactor.callLater(2.0, logger.info, "Call after starting thread?")
         
     def connectToChaperone(self, chaperoneAddr, chaperonePort):
-        logger.info("Connecting to chaperone at %s::%d" % (chaperoneAddr, chaperonePort))
+        
+        self.__chaperoneAddr = chaperoneAddr
+        self.__chaperonePort = chaperonePort
+        self.reconnectToChaperone()
+        
+    def reconnectToChaperone(self):
+        logger.info("TAGTAGTAGTAG Connecting to chaperone at %s::%d" % (self.__chaperoneAddr, self.__chaperonePort))
         
         addressString = self.__botData.address()
         if not addressString:
             addressString = "666.666.666.666"
         address = PlaygroundAddress.FromString(addressString)
-        d = BotChaperoneConnection.ConnectToChaperone(reactor, chaperoneAddr, chaperonePort, address)
+        d = BotChaperoneConnection.ConnectToChaperone(reactor, self.__chaperoneAddr, self.__chaperonePort, address)
         
         d.addCallback(self.__startReprogrammingProtocol)
         d.addErrback(self.__errorHandler)
         
     # API FOR REPROGRAMMING PROTOCOL
-    def rPassword(self):
+    def password(self):
         return self.__botData.password()
     
-    def reprogram(self, subsystem, data):
+    def reprogram(self, protocol, subsystem, data):
         dataManager = self.__botData.getModuleByName(subsystem)
         if not dataManager:
             return False, "Unknown subsystem %s" % subsystem
-        success, msg = dataManager.loader.unpack(data)
+        success, msg = dataManager.loader.unpack(str(protocol.transport.getPeer().host), data)
         if success:
             success, msg = dataManager.loader.load()
-        return success, msg
+        return success, dataManager.fingerPrint, msg
+    
+    def subsystemStatus(self, subsystem):
+        dataManager = self.__botData.getModuleByName(subsystem)
+        if not dataManager:
+            return False, None, "Unknown subsystem %s" % subsystem
+        status = dataManager.status()
+        return True, dataManager.fingerPrint, "Subsystem %s status: %s" % (subsystem, status)
         
     def reload(self):
-        self.__restartNetwork(raw=False)
+        pass # self.__restartNetwork(raw=False)
         
-    def setCurrentConnection(self, conn):
-        self.__currentConnection = conn
-        
-    def buildProtocol(self, addr):
-        if not self.__currentConnection:
-            self.__currentConnection = Factory.buildProtocol(self, addr)
-            return self.__currentConnection
-        return None
-    
 if __name__=="__main__":
     print "Starting Bot Controller"
     
