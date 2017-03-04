@@ -1,3 +1,7 @@
+# Added by SETHJN for liclipse and pydev
+.project
+.pydevproject
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
