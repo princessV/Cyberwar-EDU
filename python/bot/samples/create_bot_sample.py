@@ -4,7 +4,6 @@ Created on Feb 27, 2017
 @author: sethjn
 '''
 import os, shutil
-from dulwich.tests.test_server import ONE
 
 SAMPLE_DIRECTORY = os.path.dirname(__file__)
 
