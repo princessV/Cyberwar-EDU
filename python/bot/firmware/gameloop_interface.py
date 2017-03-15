@@ -57,6 +57,9 @@ class DummyAPI(object):
     def __within(self, x, y, borderX1, borderY1, borderX2, borderY2):
         return x >= borderX1 and x <= borderX2 and y >= borderY1 and y <= borderY2
     
+    def blocking(self):
+        return self.__blocking
+    
     def setBlocking(self, blocking):
         self.__blocking = blocking
         
@@ -117,10 +120,16 @@ class DummyAPI(object):
         return True, msg
     
     def work(self):
-        if time.time()-self.__lastWork < self.__workSpeed:
-            return False, "Can't work yet"
         if len(self.__inventory) >= self.__inventorySize:
             return False, "Inventory full"
+        
+        
+        workWaitTime = time.time()-self.__lastWork
+        if workWaitTime < self.__workSpeed:
+            if self.__blocking:
+                time.sleep(self.__workSpeed-workWaitTime)
+            else: return False, "Can't work yet"
+        
         currentTerrainType = None
         for locationType, X1, Y1, X2, Y2 in self.__locations:
             if self.__within(self.__x, self.__y, X1, Y1, X2, Y2):
