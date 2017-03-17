@@ -99,6 +99,8 @@ class RemoteWorkerBrain(object):
             if cAndC.connected():
                 if not connected:
                     connected = True
+                    tickCount = 0
+                if tickCount % 60 == 0:
                     logger.info("Sending heartbeat at tickcount %d" % tickCount)
                     response = CommandAndControlResponse(reqID=0, success=True, message="Heartbeat %d" % tickCount)
                     cAndC.send(response.__serialize__())
@@ -116,8 +118,8 @@ class RemoteWorkerBrain(object):
                     except Exception, e:
                         response = CommandAndControlResponse(reqID = msg.ID, success=False, message="Error: %s" % e)
                         cAndC.send(response.__serialize__())
-            elif tickCount > 10:
-                raise Exception("Could not connect to C&C within 10 ticks")
+            elif tickCount % 10 == 9:
+                logger.info("Could not connect to C&C within %d ticks" % (tickCount+1))
             if not cAndC.connected(): time.sleep(1)
 
 class SimpleCommandAndControlProtocol(Protocol):

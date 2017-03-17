@@ -62,8 +62,6 @@ class BotClientEndpoint(BotChaperoneConnection):
         if not self.Chaperone():
             raise Exception("Not yet connected to chaperone")
         connectProtocol = factory.buildProtocol(None)
-        print "BotClientEndpoint creating protocol", connectProtocol
-        print connectProtocol.applicationLayer()
         self.Muxer().connect(self.__playgroundServerAddr, self.__playgroundServerPort, connectProtocol)
         
         # todo: ensure that we got a port. But otherwise, we always callback that we connected.

@@ -167,7 +167,7 @@ class Controller(Factory):
     def __loadBrain(self):
         if self.__brainThread and self.__brainThread.isAlive():
             self.__botData.brain().stop()
-            self.__brainThread.join(3.0) # Give the thread three seconds to shutdown nicely
+            self.__brainThread.join(5.0) # Give the thread three seconds to shutdown nicely
             if self.__brainThread.isAlive():
                 # Thread didn't stop nicely. Shutdown the program with code 100
                 # Outside Daemon prcoess should restart
@@ -225,27 +225,33 @@ class Controller(Factory):
         pass # self.__restartNetwork(raw=False)
         
 if __name__=="__main__":
+    import argparse
+    
+    originalCommand = "python -m bot.firmware.controller "+" ".join(sys.argv[1:])
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--chaperone-addr", default="127.0.0.1")
+    parser.add_argument("--chaperone-port", default="9090")
+    parser.add_argument("--daemon", action="store_true", default=False)
+    playgroundlog.ConfigureArgParser(parser, default="DEBUG", rootLogging=True)
+    
+    opts = parser.parse_args()
+    if opts.daemon:
+        processCommand = originalCommand.replace("--daemon","")
+        deathCount = 0
+        while deathCount < 10:
+            starttime = time.time()
+            os.system("%s" % processCommand)
+            deathCount += 1
+            endtime = time.time()
+            runtime = endtime - starttime
+            deathCount = max(0, deathCount - int(runtime/60))
+        print "Too many deaths of the controller. Exit for real"
+        sys.exit(-1)
+    
     print "Starting Bot Controller"
     
-    logging.getLogger("").setLevel("INFO")
-    
-    # Uncomment the next line to turn on "packet tracing"
-    #logctx.doPacketTracing = True
-    
-    playgroundlog.Config.enableLogging()
-    playgroundlog.Config.enableHandler(playgroundlog.Config.STDERR_HANDLER)
-    
-    args = []
-    opts = {"--chaperone-addr":"127.0.0.1",
-            "--chaperone-port":"9090"}
-    for arg in sys.argv[1:]:
-        if arg.startswith("-"):
-            k,v = arg.split("=")
-            opts[k]=v
-        else:
-            args.append(arg)
-    
-    chaperoneAddress, chaperonePort = opts["--chaperone-addr"], opts["--chaperone-port"]
+    chaperoneAddress, chaperonePort = opts.chaperone_addr, opts.chaperone_port
     chaperonePort = int(chaperonePort)
     controller = Controller()
     controller.connectToChaperone(chaperoneAddress, chaperonePort)
