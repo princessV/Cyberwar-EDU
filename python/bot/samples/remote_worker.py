@@ -54,29 +54,54 @@ class RemoteWorkerBrain(object):
             else: count = 1
             
             # use blocking to make sure each move completes before the next one
-            if count > 1: ctx.api.setBlocking(True)
+            #if count > 1: ctx.api.setBlocking(True)
             for i in range(count-1):
                 result, resultMessage = ctx.api.move(direction)  # convert to int if necessary
                 yield result, resultMessage
             # this result, resultMessage pair is yielded at the end of the function
-            result, resultMessage = ctx.api.move(direction)
-            ctx.api.setBlocking(False)
+            #result, resultMessage = 
+            if direction.lower()[0] == "n":
+                ctx.api.move_north(count)
+            elif direction.lower()[0] == "s":
+                ctx.api.move_south(count)
+            elif direction.lower()[0] == "e":
+                ctx.api.move_east(count)
+            elif direction.lower()[0] == "w":
+                ctx.api.move_west(count)
+            result, resultMessage = True, "Moved"
+            #ctx.api.setBlocking(False)
             
         elif msg.reqType == CommandAndControlRequest.COMMAND_LOOK:
             # do look, get data, send back
-            result, resultMessage = ctx.api.look()
+            #result, resultMessage = 
+            result = ctx.api.look()
+            result, resultMessage = True, "\n".join("%s %d %d %d %d" % (r.type, r.position.x, r.position.y, r.position.width, r.position.height) for r in result)
             
         elif msg.reqType == CommandAndControlRequest.COMMAND_WORK:
-            result, resultMessage = ctx.api.work()
+            #result, resultMessage = 
+            try:
+                ctx.api.work()
+                result, resultMessage = True, "Worked."
+            except Exception, e:
+                result, resultMessage = False, str(e)
         
         elif msg.reqType == CommandAndControlRequest.COMMAND_UNLOAD:
             result, resultMessage = ctx.api.unload()
             
         elif msg.reqType == CommandAndControlRequest.COMMAND_INVENTORY:
-            result, resultMessage = ctx.api.inventory()
+            #result, resultMessage = ctx.api.inventory()
+            inventory = ctx.api.inventory()
+            invStr = ""
+            for k,v in inventory:
+                try:
+                    invStr += "%s (%d)\n" % (k, v)
+                except:
+                    invStr += "unknown %s (%d)\n" % (k.__class__, v)
+            result, resultMessage = True, invStr
             
         elif msg.reqType == CommandAndControlRequest.COMMAND_LOCATION:
-            result, resultMessage = ctx.api.location()
+            position= ctx.api.position
+            result, resultMessage = True, "(%d, %d)" % (position.x, position.y)
         
         else:
             result = False

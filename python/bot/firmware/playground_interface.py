@@ -12,7 +12,8 @@ from playground.network.common.PlaygroundAddress import PlaygroundAddressPair
 from twisted.internet.interfaces import IStreamClientEndpoint
 from zope.interface.declarations import implements
 from playground.network.gate.ChaperoneProtocol import ChaperoneProtocol
-from twisted.internet.endpoints import TCP4ClientEndpoint, connectProtocol
+from twisted.internet.endpoints import TCP4ClientEndpoint, \
+    UNIXClientEndpoint, connectProtocol
 from twisted.internet.defer import Deferred
 from playground.network.gate.ChaperoneDemuxer import ChaperoneDemuxer, Port
 from twisted.internet import reactor
@@ -23,12 +24,21 @@ class BotChaperoneConnection(object):
     __muxer = None
     
     @classmethod
-    def ConnectToChaperone(cls, reactor, chaperoneAddr, chaperonePort, playgroundAddress):
+    def ConnectToChaperone(cls, reactor, chaperoneDetails, playgroundAddress):
         if cls.__muxer:
             cls.__muxer.chaperone.connectionLost("Chaperone and/or Address Change")
             if cls.__muxer.chaperone.transport:
                 cls.__muxer.chaperone.transport.loseConnection()
-        chaperoneEndpoint = TCP4ClientEndpoint(reactor, chaperoneAddr, chaperonePort)
+
+        if len(chaperoneDetails) == 2:
+            addr, port = chaperoneDetails
+            chaperoneEndpoint = TCP4ClientEndpoint(reactor, addr, int(port))
+        elif len(chaperoneDetails) == 1:
+            chaperoneEndpoint = UNIXClientEndpoint(reactor,
+                                                   chaperoneDetails[0])
+        else:
+            raise ValueError('expected (addr, port) or (socket,) tuple but got %s' % chaperoneDetails)
+
         cls.__muxer = BotMuxer(playgroundAddress)
         cls.__playgroundAddress = playgroundAddress
         return connectProtocol(chaperoneEndpoint, cls.__muxer.chaperone)

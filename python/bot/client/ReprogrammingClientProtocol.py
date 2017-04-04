@@ -87,12 +87,12 @@ class ReprogrammingShellProtocol(CLIShell):
     RAW_PORT = 666
     ADV_PORT = 667
     
-    def __init__(self, botAddress):
+    def __init__(self, botAddress, password="222222"):
         CLIShell.__init__(self, prompt=self.PROMPT)
         self.__botAddress = botAddress
         self.__connectPort = self.RAW_PORT
         self.__protocol = None
-        self.__password = "222222"
+        self.__password = password
         
     def connectionMade(self):
         self.connectToBot(self.__connectPort)
@@ -196,7 +196,11 @@ class ReprogrammingShellProtocol(CLIShell):
     
 if __name__=="__main__":
     address = sys.argv[1]
+    if os.path.exists("password.txt"):
+        with open ("password.txt") as f:
+            password = f.read().strip()
+    else: password="222222"
     playgroundlog.Config.enableLogging()
     playgroundlog.Config.enableHandler(playgroundlog.Config.STDERR_HANDLER)
-    stdio.StandardIO(ReprogrammingShellProtocol(address))    
+    stdio.StandardIO(ReprogrammingShellProtocol(address, password))    
     reactor.run()

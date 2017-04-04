@@ -12,12 +12,22 @@ from playground_interface import BotClientEndpoint
 from twisted.internet import reactor
 from twisted.internet.protocol import Protocol, connectionDone, Factory
 
-import time
+import time, logging
+
+logger = logging.getLogger(__name__)
+
+try:
+    from cwg_unit import current_unit
+    API = current_unit
+    logger.info("Loaded real unit %s" % str(API))
+except:
+    API = None#DummyAPI()
+    logger.info("Loaded dummy API")
 
 class GameLoopCtx(object):
     def __init__(self):
         self.socket = PlaygroundOutboundSocket
-        self.api = DummyAPI()
+        self.api = API
         
 class DummyAPI(object):
     TERRAIN_GENERIC = "land"

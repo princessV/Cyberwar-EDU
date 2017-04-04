@@ -7,7 +7,7 @@ Created on Mar 1, 2017
 from bot.common.util import FingerPrint
 from ..common.util import ReloadableImportManager
 
-import logging, traceback, os
+import logging, traceback, os, tarfile
 
 from playground.network.message import MessageRegistry
 from collections import OrderedDict
@@ -128,9 +128,14 @@ class PythonModuleLoader(BaseLoader):
         tarballPath = self.tarballPath()
         with open(tarballPath, "wb+") as f:
             f.write(data)
-        returnCode = os.system("cd %s; tar -xzf %s" % (ReprogrammableData.CodeDir, tarballPath))
-        if returnCode:
-            return False, "Failed to reprogram %s. Error Code: %d" % (self.moduleName, returnCode)
+        try:
+            with tarfile.open(tarballPath, "r:gz") as tf:
+                tf.extractall(ReprogrammableData.CodeDir)
+        except Exception, e:
+            return False, "Failed to reprogram %s because %s." % (self.moduleName, str(e))
+        #returnCode = os.system("cd %s; tar -xzf %s" % (ReprogrammableData.CodeDir, tarballPath))
+        #if returnCode:
+        #    return False, "Failed to reprogram %s. Error Code: %d" % (self.moduleName, returnCode)
         for requiredFile in self._manager.manifest:
             if not os.path.exists(os.path.join(ReprogrammableData.CodeDir, requiredFile)):
                 return False, "Failed to reprogram %s because it failed to create required file %s"% (self.moduleName, requiredFile)

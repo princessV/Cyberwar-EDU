@@ -183,20 +183,20 @@ class Controller(Factory):
         self.__brainThread.start()
         reactor.callLater(2.0, logger.info, "Call after starting thread?")
         
-    def connectToChaperone(self, chaperoneAddr, chaperonePort):
-        
-        self.__chaperoneAddr = chaperoneAddr
-        self.__chaperonePort = chaperonePort
+    def connectToChaperone(self, details):
+        self.__chaperoneDetails = details
         self.reconnectToChaperone()
         
     def reconnectToChaperone(self):
-        logger.info("TAGTAGTAGTAG Connecting to chaperone at %s::%d" % (self.__chaperoneAddr, self.__chaperonePort))
+        logger.info("Bot Connecting to Chaperone at %s" % self.__chaperoneDetails)
         
         addressString = self.__botData.address()
         if not addressString:
             addressString = "666.666.666.666"
         address = PlaygroundAddress.FromString(addressString)
-        d = BotChaperoneConnection.ConnectToChaperone(reactor, self.__chaperoneAddr, self.__chaperonePort, address)
+        d = BotChaperoneConnection.ConnectToChaperone(reactor,
+                                                      self.__chaperoneDetails,
+                                                      address)
         
         d.addCallback(self.__startReprogrammingProtocol)
         d.addErrback(self.__errorHandler)
@@ -224,6 +224,15 @@ class Controller(Factory):
     def reload(self):
         pass # self.__restartNetwork(raw=False)
         
+
+
+def run(details):
+    controller = Controller()
+    controller.connectToChaperone(details)
+    TwistedShutdownErrorHandler.HandleRootFatalErrors()
+    reactor.run()
+
+
 if __name__=="__main__":
     import argparse
     
@@ -232,6 +241,7 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--chaperone-addr", default="127.0.0.1")
     parser.add_argument("--chaperone-port", default="9090")
+    parser.add_argument("--chaperone-sock", default=None)
     parser.add_argument("--daemon", action="store_true", default=False)
     playgroundlog.ConfigureArgParser(parser, default="DEBUG", rootLogging=True)
     
@@ -250,13 +260,8 @@ if __name__=="__main__":
         sys.exit(-1)
     
     print "Starting Bot Controller"
-    
-    chaperoneAddress, chaperonePort = opts.chaperone_addr, opts.chaperone_port
-    chaperonePort = int(chaperonePort)
-    controller = Controller()
-    controller.connectToChaperone(chaperoneAddress, chaperonePort)
-    
-    TwistedShutdownErrorHandler.HandleRootFatalErrors()
-    reactor.run()
 
-    
+    if opts.chaperone_sock is not None:
+        run((opts.chaperone_addr, int(opts.chaperone_port)))
+    else:
+        run((opts.chaperone_sock,))
