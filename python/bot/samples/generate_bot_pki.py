@@ -20,7 +20,7 @@ def generatePki(botAddress, botClientAddress, serialNumbers=None):
     CMD_GENERATE_KEY = 'openssl genrsa -out %(KEY_FILENAME)s 2048'
     CMD_GENERATE_CSR = 'openssl req -new -key %(KEY_FILENAME)s -out %(CSR_FILENAME)s -subj /C=US/ST=MD/L=Baltimore/O=Cyberwar/OU=Bot/CN=%(COMMON_NAME)s -batch'
     CMD_SELFSIGN_ROOT_CERT = 'openssl x509 -req -days 30 -in %(ROOT_CSR_FILENAME)s -signkey %(ROOT_KEY_FILENAME)s -out %(ROOT_CERT_FILENAME)s -set_serial %(ROOT_SERIAL_NUMBER)d' 
-    CMD_SIGN_ADDR_CERT = 'openssl x509 -req -days 30 -in %(ADDR_CSR_FILENAME)s -CA %(ROOT_CERT_FILENAME)s -CAkey %(ROOT_KEY_FILENAME)s -out %(ADDR_CERT_FILENAME)s -set_serial $(ADDR_SERIAL_NUMBER)d'
+    CMD_SIGN_ADDR_CERT = 'openssl x509 -req -days 30 -in %(ADDR_CSR_FILENAME)s -CA %(ROOT_CERT_FILENAME)s -CAkey %(ROOT_KEY_FILENAME)s -out %(ADDR_CERT_FILENAME)s -set_serial %(ADDR_SERIAL_NUMBER)d'
     
     lastDir = os.getcwd()
         
