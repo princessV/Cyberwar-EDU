@@ -188,7 +188,7 @@ class Controller(Factory):
         self.reconnectToChaperone()
         
     def reconnectToChaperone(self):
-        logger.info("Bot Connecting to Chaperone at %s" % self.__chaperoneDetails)
+        logger.info("Bot Connecting to Chaperone at %s" % str(self.__chaperoneDetails))
         
         addressString = self.__botData.address()
         if not addressString:
@@ -261,7 +261,7 @@ if __name__=="__main__":
     
     print "Starting Bot Controller"
 
-    if opts.chaperone_sock is not None:
+    if opts.chaperone_sock is None:
         run((opts.chaperone_addr, int(opts.chaperone_port)))
     else:
         run((opts.chaperone_sock,))

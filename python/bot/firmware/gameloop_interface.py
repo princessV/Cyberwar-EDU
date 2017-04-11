@@ -247,6 +247,9 @@ class PlaygroundOutboundSocket(object):
         self.__protocol = protocol
     
     def connect(self, addr, port):
+        reactor.callFromThread(self.__connectInMainThread, addr, port)
+        
+    def __connectInMainThread(self, addr, port):
         if addr == "ORIGIN_SERVER":
             if self.ORIGIN: addr = self.ORIGIN
             else: raise Exception("No Origin Server Specified")
