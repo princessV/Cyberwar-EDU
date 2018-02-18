@@ -11,7 +11,9 @@ def read_x(f, size):
 
 def brainLoop():
     gameSocket = open("game://", "rb+")
-    ccSocket = open("default://20174.0.1.1:10013","rb+")
+#% TEMPLATE-ON
+    ccSocket = open("{prot}://{host}:{port}","rb+")
+#% TEMPLATE-OFF
 
 
     while True:
