@@ -35,7 +35,8 @@ class SimpleTerrainInitialization:
             waterSquareCache[(randx, randy)]=True
             borderSet.add((randx, randy))
         
-        waterSquareCount = 0        
+        waterSquareCount = 0     
+        print("Create approximately {} water squares".format(waterSquares))   
         while waterSquareCount < waterSquares:
             phaseBaseOdds = .1#random.randint(13,14)/100.0
             momentumOdds = random.randint(5, 50)/1000.0
@@ -85,8 +86,10 @@ class SimpleTerrainInitialization:
                 #print("Brick wall. Quit")
                 break
         #print("Water Square Count {}. Expected {}".format(waterSquareCount, waterSquares))
-            
+        
+        print("Load squares")    
         for x in range(maxX):
+            print(x)
             for y in range(maxY):
                 if waterSquareCache.get((x,y), False):
                     squareType = Water()
@@ -100,4 +103,5 @@ class SimpleTerrainInitialization:
                 
                 r = terrainLayer.send(PutRequest(sender, x, y, squareType))
                 if not r: return r
+        print("done")
         return True

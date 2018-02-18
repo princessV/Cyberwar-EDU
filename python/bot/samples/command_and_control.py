@@ -1,5 +1,5 @@
 import playground
-import asyncio
+import asyncio, os
 
 from playground.common.io.ui.CLIShell import CLIShell, AdvancedStdio
 
@@ -14,6 +14,7 @@ class RemoteControlProtocol(asyncio.Protocol):
         self.translator = translations.NetworkTranslator()
         self.buffer = b""
         self.waitingMessage = None
+        self.identifier = "Unknown Object"
 
     def connection_made(self, transport):
         self.transport = transport
@@ -60,7 +61,7 @@ class RemoteConsole(CLIShell):
         "nw":"north-west"
     }
 
-    def __init__(self):
+    def __init__(self, serverFamily="default"):
         super().__init__(prompt=self.STD_PROMPT)
         self._protocolId = 0
         self._selected = None
@@ -75,11 +76,15 @@ class RemoteConsole(CLIShell):
         listobjectsHandler  = Command("list",
                                       "list current connections",
                                       self._listCommand)
+        reprogramHandler    = Command("reprogram",
+                                      "reprogram bot. Careful. Don't BRICK it.",
+                                      self._reprogramCommand)
         self.registerCommand(switchobjectHandler)
         self.registerCommand(sendcommandHandler)
         self.registerCommand(listobjectsHandler)
+        self.registerCommand(reprogramHandler)
 
-        coro = playground.create_server(lambda: RemoteControlProtocol(self), port=10013, family="peep")
+        coro = playground.create_server(lambda: RemoteControlProtocol(self), port=10013, family=serverFamily)
         asyncio.ensure_future(coro)
 
     def addConnection(self, protocol):
@@ -95,6 +100,12 @@ class RemoteConsole(CLIShell):
 
     def handleNetworkException(self, protocol, e):
         self.transport.write("Network Failure: {}\n\n".format(e))
+
+    def createObjectDisplay(self, objectData, indent=""):
+       s = ""
+       for key, value in objectData:
+           s += "{}{}: {}\n".format(indent, key, value)
+       return s 
 
     def createScanResultsDisplay(self, scanResults):
         mapPart = ""
@@ -114,10 +125,10 @@ class RemoteConsole(CLIShell):
                 if d["type"] == "terrain":
                     terrain = d["identifier"]
                 elif d["type"] == "object":
-                    obj = d["identifier"] + " (" + d["attributes"] + ")"
+                    obj = self.createObjectDisplay(objData, indent="\t")
             if obj is not None:
                 mapLine += "O"
-                textPart += "Object at {}: {}\n".format(coord, obj)
+                textPart += "Object at {}: \n{}\n".format(coord, obj)
             elif terrain == "land":
                 mapLine += "#"
             elif terrain == "water":
@@ -131,6 +142,7 @@ class RemoteConsole(CLIShell):
         if isinstance(data, translations.BrainConnectResponse):
             self.transport.write("Brain Connected. Attributes={}\n".format(data.attributes))
             protocol.translator = translations.NetworkTranslator(*data.attributes)
+            protocol.identifier = data.identifier
             self.transport.write("Attributes Loaded\n\n")
         elif isinstance(data, translations.FailureResponse):
             self.transport.write("Something's wrong!: {}\n\n ".format( data.message))
@@ -147,6 +159,12 @@ class RemoteConsole(CLIShell):
             else:
                 verb = "left"
             self.transport.write("{} {} {}".format(data.objectIdentifier, verb, data.location)) 
+        elif isinstance(data, translations.StatusResponse):
+            self.transport.write("{} status:\n{}\n".format(protocol.identifier, self.createObjectDisplay(data.data, indent="\t")))
+        elif isinstance(data, translations.DamageEvent):
+            self.transport.write("{} hit {} for {} points of damage (took {} points of damage). {}".format(protocol.identifier, data.targetObjectIdentifier, data.targetDamage, data.damage, data.message))
+        elif isinstance(data, translations.ReprogramResponse):
+            self.transport.write("Reprogram of {} {}. {}\n\n".format(data.path, (data.success and "successful" or "unsuccessful"), data.message))
         else:
             self.transport.write("Got {}\n\n".format(data))
         self.transport.refreshDisplay()
@@ -168,6 +186,45 @@ class RemoteConsole(CLIShell):
             writer("Object {} selected\n".format(arg1))
             self.prompt = "[{}] >> ".format(arg1)
         writer("\n")
+
+    def _reprogramCommand(self, writer, subcmd, *args):
+        args = list(args) # convert to list... I want to use .pop
+        if self._selected is None:
+            writer("No remote object selected.\n\n")
+            return
+
+        protocol = self._protocols.get(self._selected, None)
+        if protocol is None:
+            writer("Selected object no longer available.\n\n")
+            self.prompt = self.STD_PROMPT
+            return
+        if subcmd.lower() == "write":
+            remotePath = args.pop(0)
+            localPath = args.pop(0)
+            restartNetworking = ("restart-networking" in args)
+            restartBrain      = ("restart-brain"      in args)
+            if not os.path.exists(localPath):
+                writer("No such file {}\n\n".format(localPath))
+                return
+            with open(localPath, "rb") as f:
+                data = f.read()
+            cmdObj = translations.ReprogramCommand(remotePath, data, restartBrain, restartNetworking, deleteFile=False)
+        elif subcmd.lower() == "delete":
+            remotePath = args.pop(0)
+            restartNetworking = ("restart-networking" in args)
+            restartBrain      = ("restart-brain"      in args)
+            cmdObj = translations.ReprogramCommand(remotePath, b"", restartBrain, restartNetworking, deleteFile=True)
+        else:
+            writer("No such reporgram command {}\n\n".format(subcmd))
+            return
+        choice = input("This is your last chance to cancel reprogramming {}. Y to continue.".format(remotePath))
+        if choice.lower().startswith('y'):
+            sendData = protocol.translator.marshallToNetwork(cmdObj)
+            protocol.transport.write(sendData) 
+            writer("Reprogram command send.\n\n")
+        else:
+            writer("Cancelled\n\n")
+        
 
     def _sendCommand(self, writer, cmd, *args):
         if self._selected is None:
@@ -199,6 +256,8 @@ class RemoteConsole(CLIShell):
             sendData = protocol.translator.marshallToNetwork(cmdObj)
             protocol.transport.write(sendData)
             writer("Move Message Sent.\n\n")
+        elif cmd == "status":
+            protocol.transport.write(protocol.translator.marshallToNetwork(translations.StatusCommand()))
         else:
             writer("Unknown Command {}\n\n".format(cmd))
 
@@ -210,6 +269,11 @@ class RemoteConsole(CLIShell):
 
 
 if __name__=="__main__":
-    shell = RemoteConsole()
+    import sys
+    family = "default"
+    for arg in sys.argv:
+        if arg.startswith("--family"):
+            family = arg.split("=")[1]
+    shell = RemoteConsole(family)
     asyncio.get_event_loop().call_soon(shell.start)
     asyncio.get_event_loop().run_forever() 

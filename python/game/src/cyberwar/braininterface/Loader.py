@@ -5,26 +5,32 @@ Created on Feb 14, 2018
 '''
 
 from ..controlplane.objectdefinitions import ControlPlaneObjectAttribute, Tangible, Observer
+from ..controlplane.objectdefinitions import ControlPlaneObject
 from ..core.PickleLoader import PickleLoader, pickle
 import subprocess, os, asyncio
 
 HEALTH_CHECK_TIME = 30.0
 
+def kill(pid):
+    try:
+        os.kill(pid, 2)
+    except:
+        pass
+    
+# TODO:
+# Broken things. The launching thing is a hack. Unify. Simplify.
+
 class BrainEnabled(ControlPlaneObjectAttribute):
     REQUIRED = [Tangible]
     
     RUNNING_PIDS = set([])
-    
-    WORKING_DIR = "/home/sethjn/WIN_DEV/CyberWar-EDU/python/game/pypy-sandbox/src"
-    RPYTHON_DIR = "/home/sethjn/WIN_DEV/pypy_35/pypy3-v5.9.0-src/"
+    LOAD_REQUIRED = []
     
     @classmethod
     def ShutdownAll(cls):
-        for pid in cls.RUNNING_PIDS:
-            try:
-                os.kill(pid, 1)
-            except:
-                pass
+        brains = list(cls.RUNNING_PIDS) # make a copy. stop clears itself from list
+        for brain in brains:
+            brain.stop()
         cls.RUNNING_PIDS = set([])
             
     
@@ -34,6 +40,7 @@ class BrainEnabled(ControlPlaneObjectAttribute):
         self._brainIdentifier = brainIdentifier
         self._p = None
         self._pid = None
+        self._stopped = False
         
         self.start()
         
@@ -41,27 +48,41 @@ class BrainEnabled(ControlPlaneObjectAttribute):
         return self._brainIdentifier
         
     def start(self, retryCount=0):
+        if not Loader.PYPY_PATH:
+            raise Exception("Cannot start brain. Pypy path not configured.")
+        # Turn on PNetworking
+        subprocess.call("pnetworking on", shell=True, cwd=self._directory)
         args = ["python", "./brain_interact.py", "--tmp={}".format(self._directory),
                 "--gameobj={}".format(self._brainIdentifier), 
                 "pypy3-c-sandbox", "-S", "brain.py"]
         print("Starting",args)
         env = os.environ.copy()
-        env["PYTHONPATH"] = self.RPYTHON_DIR
-        self._p = subprocess.Popen(args, cwd=self.WORKING_DIR, env=env)
+        env["PYTHONPATH"] = Loader.PYPY_PATH
+        print("Seeting PYTHONPATH to ",env["PYTHONPATH"])
+        self._p = subprocess.Popen(args, cwd=os.getcwd(), env=env)
         self._pid = self._p.pid
-        self.RUNNING_PIDS.add(self._pid)
+        self.RUNNING_PIDS.add(self)
         
         asyncio.get_event_loop().call_later(HEALTH_CHECK_TIME, self._checkHealth, retryCount+1)
         
     def stop(self):
-        self.brainRunning() and self._p.terminate()
-        self.RUNNING_PIDS.remove(self._pid)
+        if self._stopped: return
+        self._stopped = True
+        #self.brainRunning() and self._p.terminate()
+        # just in case that didn't work. Let's force an os kill
+        kill(self._pid)
+        
+        # shutdown pnetworking
+        subprocess.call("pnetworking off", shell=True, cwd=self._directory)
+        
+        self.RUNNING_PIDS.remove(self)
         self._pid = None
         
     def brainRunning(self):
         return self._p and (self._p.poll() is None)
         
     def _checkHealth(self, retryCount):
+        if self._stopped: return
         if self.brainRunning():
             # still running.
             asyncio.get_event_loop().call_later(HEALTH_CHECK_TIME, self._checkHealth, 0)
@@ -81,6 +102,11 @@ class BrainControlledObjectLoader(PickleLoader):
     # Loaders need to be more general. 
     BRAINID_TO_OBJECT = {}
     
+    CAN_LAUNCH_BRAINS = False
+    
+    # Don't know where this should go either. It is set by outside modules
+    PYPY_PATH = None
+    
     @classmethod
     def GetObjectByBrainID(cls, brainId):
         return cls.BRAINID_TO_OBJECT.get(brainId, None)
@@ -88,13 +114,18 @@ class BrainControlledObjectLoader(PickleLoader):
     def load(self, row):
         objId, objData = row
         object = pickle.loads(objData)
+        ControlPlaneObject.OBJECT_ID = max(object.numericIdentifier(), ControlPlaneObject.OBJECT_ID)
         brainAttr = object.getAttribute(BrainEnabled)
         
         self.BRAINID_TO_OBJECT[brainAttr.brainIdentifier()] = object
+        ControlPlaneObject.OBJECT_LOOKUP[object.numericIdentifier()] = object
         
         if brainAttr._pid:
-            os.kill(brainAttr._pid, 9)
-        brainAttr.start()
+            kill(brainAttr._pid)
+        if not self.CAN_LAUNCH_BRAINS:
+            BrainEnabled.LOAD_REQUIRED.append((brainAttr))
+        else:
+            brainAttr.start()
         return object
     
     def unload(self, object):

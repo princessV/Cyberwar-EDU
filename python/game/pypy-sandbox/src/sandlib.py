@@ -222,6 +222,10 @@ class SandboxedProc(object):
             print(1, file=f)# >> f, 1
             f.close()
         while True:
+            if asyncio_interface.RestartRequest.Status:
+                print('Restart requested from lower brain')
+                self.kill()
+                break
             try:
                 fnname = read_message(child_stdout)
                 args   = read_message(child_stdout)
@@ -637,3 +641,11 @@ class VirtualizedNetworkProc(VirtualizedSandboxedProc):
                 raise OSError(errno.EBADF, str(e))
         return super().do_ll_os__ll_os_write(fd, data)
 
+
+    def kill(self):
+        for fd in self.sockets:
+            try:
+                protocol = self.get_file(fd)
+                protocol.close()
+            except: pass
+        super().kill()

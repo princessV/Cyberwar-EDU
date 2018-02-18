@@ -10,6 +10,7 @@ from ..core.Layer import Layer as LayerBase
 
 from ..controlplane.objectdefinitions import ControlPlaneObject
 from ..controlplane.Layer import ObjectObservationEvent, ObjectMoveCompleteEvent
+from ..controlplane.Layer import ObjectDamagedEvent
 
 from .connection import BrainConnectionProtocol
 from .Loader import Loader, BrainEnabled
@@ -24,6 +25,14 @@ class CreateBrainControlledObjectRequest(Request):
 class CreateBrainControlledObjectResponse(Response):
     pass
 
+class GetBrainObjectByIdentifier(Request):
+    def __init__(self, sender, identifier):
+        super().__init__(sender, BrainInterfaceLayer.LAYER_NAME,
+                         Identifier=identifier)
+        
+class GetBrainObjectResponse(Response):
+    pass
+
 class BrainInterfaceLayer(LayerBase):
     LAYER_NAME = "braininterface"
     SERVER_PORT = 10013
@@ -32,13 +41,27 @@ class BrainInterfaceLayer(LayerBase):
         super().__init__(self.LAYER_NAME, lowerLayer)
         self._objectToID = {}
         self._idToObject = {}
+        self._brainConnectionServer = None
         
         coro = asyncio.get_event_loop().create_server(lambda: BrainConnectionProtocol(self, self), 
                                                       host="127.0.0.1",
                                                       port=self.SERVER_PORT)
         f = asyncio.ensure_future(coro)
+        f.add_done_callback(self._serverStarted)
         self.registerCleanup(BrainEnabled.ShutdownAll, "Shutdown all brain subprocesses")
-        self.registerCleanup(lambda: f.result().close(), "Shutdown brain connections server")
+        self.registerCleanup(self._serverShutdown, "Shutdown brain connections server")
+        
+    def _serverStarted(self, result):
+        self._brainConnectionServer = result.result()
+        # TODO: This is a hack. Find something better
+        Loader.CAN_LAUNCH_BRAINS = True
+        for brainAttr in BrainEnabled.LOAD_REQUIRED:
+            brainAttr.start()
+        BrainEnabled.LOAD_REQUIRED = []
+
+    def _serverShutdown(self):
+        if self._brainConnectionServer:
+            self._brainConnectionServer.close()
         
     def getObjectByIdentifier(self, identifier):
         return Loader.GetObjectByBrainID(identifier)
@@ -59,6 +82,12 @@ class BrainInterfaceLayer(LayerBase):
                 return r
             return self._requestAcknowledged(req, object, ackType=CreateBrainControlledObjectResponse)
             # insert this onto the board. We do this 
+        elif isinstance(req, GetBrainObjectByIdentifier):
+            obj = ControlPlaneObject.OBJECT_LOOKUP.get(req.Identifier, None)
+            if not obj:
+                return self._requestFailed(req, "Unknown object")
+            else:
+                return self._requestAcknowledged(req, obj, ackType=GetBrainObjectResponse)
         else:
             return self._requestFailed(req, "Unknown Request")
         
@@ -76,6 +105,6 @@ class BrainInterfaceLayer(LayerBase):
             observer = event.Object
             BrainConnectionProtocol.HandleEvent(observer, event.Event)
             
-        elif isinstance(event, ObjectMoveCompleteEvent):
+        elif isinstance(event, ObjectMoveCompleteEvent) or isinstance(event, ObjectDamagedEvent):
             BrainConnectionProtocol.HandleEvent(event.Object, event)
 Layer = BrainInterfaceLayer

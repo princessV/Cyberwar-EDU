@@ -13,7 +13,7 @@ class PickleLoader:
     
     @classmethod
     def InitializeDatabase(cls, db):
-        sqlTemplate = "CREATE TABLE IF NOT EXISTS {} (objId INTEGER, objData TEXT)"
+        sqlTemplate = "CREATE TABLE IF NOT EXISTS {} (objId INTEGER PRIMARY KEY, objData TEXT)"
         db.execute(sqlTemplate.format(cls.TableName()))
         
     def tableName(self):
@@ -25,3 +25,6 @@ class PickleLoader:
     def load(self, row):
         objId, objData = row
         return pickle.loads(objData)
+    
+    def isDirty(self, object):
+        return True

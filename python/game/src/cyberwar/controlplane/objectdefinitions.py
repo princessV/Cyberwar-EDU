@@ -7,12 +7,15 @@ Created on Feb 13, 2018
 from .Directions import Directions
 
 class ControlPlaneObject:
-    OBJECT_ID = 0 # This should be pickled and saved
+    OBJECT_ID = 0 # LOADERS MUST RELOAD THIS VALUE!!!
+    
+    OBJECT_LOOKUP = {} # LOADERS MUST ALSO RELOAD THIS VALUE !!!
+    
     def __init__(self, *attributes):
         self._attributes = {}
         ControlPlaneObject.OBJECT_ID += 1
-        numericId = ControlPlaneObject.OBJECT_ID
-        self._identifier = "game_object_{}".format(numericId)
+        self._numericId = ControlPlaneObject.OBJECT_ID
+        self._identifier = "game_object_{}".format(self._numericId)
         for attribute in attributes:
             attributeClass = attribute.__class__
             
@@ -32,6 +35,9 @@ class ControlPlaneObject:
                 self._attributes[attributeClass] = parent
         for attribute in attributes:
             attribute.initializeObject(self)
+    
+    def numericIdentifier(self):
+        return self._numericId
     
     def identifier(self):
         return self._identifier

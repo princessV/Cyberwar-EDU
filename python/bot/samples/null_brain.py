@@ -11,7 +11,7 @@ def read_x(f, size):
 
 def brainLoop():
     gameSocket = open("game://", "rb+")
-    ccSocket = open("peep://20174.0.1.1:10013","rb+")
+    ccSocket = open("default://20174.0.1.1:10013","rb+")
 
 
     while True:

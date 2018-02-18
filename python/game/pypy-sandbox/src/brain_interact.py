@@ -20,12 +20,24 @@ provided you use enough -u options:
     ledit python -u pypy_interact.py pypy3-c-sandbox -u
 """
 
-import sys, os, asyncio, asyncio_interface
+import sys, os, asyncio, asyncio_interface, playground
 #from rpython.translator.sandbox.sandlib import SimpleIOSandboxedProc
 from sandlib import VirtualizedNetworkProc
 from rpython.translator.sandbox.vfs import Dir, RealDir, RealFile
 import pypy
 LIB_ROOT = os.path.dirname(os.path.dirname(pypy.__file__))
+
+EXIT_HANDLERS = []
+def runSafe(f):
+    try:
+        f()
+    except: pass
+    
+def AddExitHandler(f):
+    EXIT_HANDLERS.append(lambda: runSafe(f))
+    
+def RunExitHandlers():
+    for f in EXIT_HANDLERS: f()
 
 class PyPySandboxedProc(VirtualizedNetworkProc):#, SimpleIOSandboxedProc):
     argv0 = '/bin/pypy3-c'
@@ -119,6 +131,13 @@ def main():
     if len(arguments) < 1:
         help()
 
+    if tmpdir is None:
+        raise Exception("A tmp directory is required for a brain.")
+    
+    # lock in this path.
+    asyncio_interface.PLAYGROUND_CFG_PATH = os.path.join(tmpdir, ".playground")
+    playground.Configure.AddCustomPath("brain",asyncio_interface.PLAYGROUND_CFG_PATH)
+    
     sandproc = PyPySandboxedProc(arguments[0], extraoptions + arguments[1:],
                                  tmpdir=tmpdir, debug=debug)
     if timeout is not None:
@@ -126,6 +145,7 @@ def main():
     if logfile is not None:
         sandproc.setlogfile(logfile)
     
+    AddExitHandler(sandproc.kill)
     asyncio.get_event_loop().run_in_executor(None, sandboxThread, sandproc, asyncio.get_event_loop())
         
 def sandboxThread(sandproc, loop):
@@ -143,4 +163,7 @@ if __name__ == '__main__':
     asyncio_interface.gLOOP = asyncio.get_event_loop()
     asyncio.get_event_loop().set_debug(True)
     main()
-    asyncio.get_event_loop().run_forever()
+    try:
+        asyncio.get_event_loop().run_forever()
+    finally:
+        RunExitHandlers()

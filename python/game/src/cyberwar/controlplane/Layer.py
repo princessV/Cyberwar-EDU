@@ -14,7 +14,7 @@ from .objectdefinitions import Observer, Mobile, Tangible
 from .RangedLookup import RangedLookup
 from .Directions import Directions
 
-import asyncio
+import asyncio, random
 
 # REQUESTS
 class ObjectScanRequest(Request):
@@ -38,9 +38,11 @@ class ObjectMoveCompleteEvent(Event):
                          Object=object, Location=newLocation, Message=message)
         
 class ObjectDamagedEvent(Event):
-    def __init__(self, receiver, object, damage, message):
+    def __init__(self, receiver, object, targetObject, damage, targetDamage, message):
         super().__init__(ControlLayer.LAYER_NAME, receiver, 
-                         Object=object, Damage=damage, Message=message)
+                         Object=object, TargetObject=targetObject,
+                         Damage=damage, TargetDamage=targetDamage,
+                         Message=message)
         
 class ObjectObservationEvent(Event):
     """This event is when a specific object
@@ -128,6 +130,7 @@ class ControlLayer(LayerBase):
                 
                 # Is this an Observer? If so, track it
                 if self._isObserver(event.Object):
+                    print("Loading object {} into observations".format(event.Object))
                     self._observerTracking.observe(event.Object, (event.X, event.Y))
                 
             elif event.Operation == ChangeContentsEvent.REMOVE:
@@ -183,34 +186,43 @@ class ControlLayer(LayerBase):
                     if objectTangibleAttr:
                         # Two tangible objects in the same space. Collision
                         # for now, damge is 10% of hit points. Later, adjust by speed
-                        myDamage = (objectTangibleAttr.hitpoints()/10)
-                        objectDamage = (myTangibleAttr.hitpoints()/10)
+                        maxMyDamage = int(objectTangibleAttr.hitpoints()/10)
+                        maxObjectDamage = int(myTangibleAttr.hitpoints()/10)
                         
-                        objectTangibleAttr.takeDamage(objectDamage)
-                        myTangibleAttr.takeDamage(myDamage)
+                        if maxMyDamage > 0:
+                            myDamage = random.randint(1, maxMyDamage)
+                            myTangibleAttr.takeDamage(myDamage)
+                        else:
+                            myDamage = 0
+                            
+                        if maxObjectDamage > 0:
+                            objectDamage = random.randint(1, maxObjectDamage)
+                            objectTangibleAttr.takeDamage(objectDamage)
+                        else:
+                            objectDamage = 0
                         
                         if objectTangibleAttr.hitpoints() == 0:
                             self._lowerLayer.send(ReleaseObjectRequest(self.LAYER_NAME,
                                                                        object))
                         if myTangibleAttr.hitpoints() == 0:
                             self._lowerLayer.send(ReleaseObjectRequest(self.LAYER_NAME,
-                                                                       object))
+                                                                       request.Object))
                         
                         if self._upperLayer:
-                            objectName = object.__class__.__name__
-                            myName = request.Object.__class__.__name__
+                            objectName = object.identifier()
+                            myName = request.Object.identifier()
                             
                             # Don't know whom should receive the damage report.
                             # BROADCAST
                             
                             self._upperLayer.receive(ObjectDamagedEvent(Event.BROADCAST,
-                                                                        object,
-                                                                        objectDamage,
+                                                                        object, request.Object, 
+                                                                        objectDamage, myDamage,
                                                                         "Collision with {}".format(myName))
                                                                         )
                             self._upperLayer.receive(ObjectDamagedEvent(Event.BROADCAST,
-                                                                        request.Object,
-                                                                        myDamage,
+                                                                        request.Object, object,
+                                                                        myDamage, objectDamage,
                                                                         "Collision with {}".format(objectName))
                                                                         )
                             self._upperLayer.receive(ObjectMoveCompleteEvent(request.sender(),

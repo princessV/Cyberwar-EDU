@@ -12,4 +12,7 @@ class TerrainLoader(PickleLoader):
     def TableName(cls):
         return "cyberwar_terrain_loader"
     
+    def isDirty(self, object):
+        return False
+    
 Loader = TerrainLoader

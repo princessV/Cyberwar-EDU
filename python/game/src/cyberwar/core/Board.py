@@ -109,7 +109,9 @@ class Board(Layer):
     
     def __init__(self, db, objectStore):
         super().__init__(self.LAYER_NAME)
+        self._inMemoryCache = {}
         self._db = db
+        self._cursor = db.cursor
         self._objectStore = objectStore
         self._xSize = int(self._getMetadata("xsize"))
         self._ySize = int(self._getMetadata("ysize"))
@@ -122,10 +124,12 @@ class Board(Layer):
             for j in range(self._ySize):
                 c = self._db.execute("SELECT objType, objId from game_board WHERE x=? AND y=?",
                              (i, j))
+                self._inMemoryCache[(i,j)] = set([])
                 for row in c.fetchall():
                     objType, objId = row
                     object = self._objectStore.load(objType, objId)
                     self.raiseEvent(ChangeContentsEvent(i, j, ChangeContentsEvent.INSERT, object))
+                    self._inMemoryCache[(i,j)].add(object)
         return super()._startup(req)
         
     def _getMetadata(self, field, default=None):
@@ -184,12 +188,17 @@ class Board(Layer):
                                        failureType=InvalidLocation)
         
         contents = []
-        c = self._db.execute("SELECT objType, objId from game_board WHERE x=? AND y=?",
-                             (getRequest.X, getRequest.Y))
-        for row in c.fetchall():
-            objType, objId = row
-            object = self._objectStore.load(objType, objId)
-            contents.append(object)
+        location = (getRequest.X, getRequest.Y)
+        if location in self._inMemoryCache:
+            contents = self._inMemoryCache[location]
+        else:
+            c = self._db.execute("SELECT objType, objId from game_board WHERE x=? AND y=?",
+                                 (getRequest.X, getRequest.Y))
+            for row in c.fetchall():
+                objType, objId = row
+                object = self._objectStore.load(objType, objId)
+                contents.append(object)
+            self._inMemoryCache[location] = contents
             
         return self._requestAcknowledged(getRequest, 
                                          contents,
@@ -211,7 +220,10 @@ class Board(Layer):
         if not self._objectStore.hasObject(releaseRequest.Object):
             return self._requestFailed(releaseRequest, "Object does not exist in game")
         self.removeObject(RemoveRequest(self.LAYER_NAME, releaseRequest.Object))
-        self._objectStore.removeObjectFromGame(releaseRequest.Object)
+        try:
+            self._objectStore.removeObjectFromGame(releaseRequest.Object)
+        except Exception as e:
+            return self._requestFailed(releaseRequest, "Could not remove from game. {}".format(e))
         if self._upperLayer:
             self._upperLayer.receive(ObjectChurnEvent(ObjectChurnEvent.RELEASED, releaseRequest.Object))
         return self._requestAcknowledged(releaseRequest, True, ackType=ReleaseResult)
@@ -237,6 +249,14 @@ class Board(Layer):
         for row in c.fetchall(): # SHOULD BE AT MOST ONE. TODO, check?
             oldX, oldY = row
             # Already on board. Move from x,y to put.X, put.Y
+            
+            # update the in memory cache
+            if putRequest.Object in self._inMemoryCache.get((oldX, oldY), set([])):
+                self._inMemoryCache[(oldX, oldY)].remove(putRequest.Object)
+            if not (putRequest.X, putRequest.Y) in self._inMemoryCache:
+                self._inMemoryCache[(putRequest.X, putRequest.Y)] = set([])
+            self._inMemoryCache[(putRequest.X, putRequest.Y)].add(putRequest.Object)
+            
             self._db.execute("UPDATE game_board set x=?, y=? WHERE objType=? AND objId=?",
                              (putRequest.X, putRequest.Y, objType, objId))
             
@@ -248,6 +268,11 @@ class Board(Layer):
         
         # Not already on the board. Adding
         if not moved:
+            # update in memory cache
+            if not (putRequest.X, putRequest.Y) in self._inMemoryCache:
+                self._inMemoryCache[(putRequest.X, putRequest.Y)] = set([])
+            self._inMemoryCache[(putRequest.X, putRequest.Y)].add(putRequest.Object)
+            
             self._db.execute("INSERT INTO game_board VALUES(?, ?, ?, ?)", 
                              (putRequest.X, putRequest.Y, objType, objId))
         
@@ -268,6 +293,11 @@ class Board(Layer):
                              (objType, objId))
         for row in c.fetchall(): # SHOULD BE AT MOST ONE. TODO, check?
             oldX, oldY = row
+            
+            # update the in memory cache
+            if removeRequest.Object in self._inMemoryCache.get((oldX, oldY), set([])):
+                self._inMemoryCache[(oldX, oldY)].remove(removeRequest.Object)
+                
             self.raiseEvent(ChangeContentsEvent(oldX, oldY,
                                                 ChangeContentsEvent.REMOVE,
                                                 removeRequest.Object))

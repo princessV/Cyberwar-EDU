@@ -38,7 +38,7 @@ class ObjectStore:
         
     def commit(self):
         for obj in self._inMemoryObjects:
-            self.save(obj, commit=False)
+            self.save(obj, dirtyOnly=True)
         self._db.commit()
                 
     def load(self, objType, objId, reload=False):
@@ -66,7 +66,7 @@ class ObjectStore:
         
         return obj
     
-    def save(self, object, commit=True):
+    def save(self, object, dirtyOnly=False):
         if not self._loaded:
             return Exception("Database not ready")
         
@@ -78,13 +78,13 @@ class ObjectStore:
             raise Exception("Unknown type {} (no loader)".format(objType))
         
         loader = self._loaders[objType]
+        if dirtyOnly and not loader.isDirty(object):
+            return
         objData = [objId] + loader.unload(object)
         template = ",".join(["?"]*len(objData))
         self._db.execute("REPLACE INTO {} VALUES({})".format(loader.tableName(),
                                                             template),
                    objData)
-        if commit:
-            self._db.commit()
             
     def getDatabasePointer(self, object):
         if not self._loaded:
@@ -129,7 +129,7 @@ class ObjectStore:
         loader = self._loaders[objType]
         
         self._db.execute("DELETE FROM {} WHERE objId=?".format(loader.tableName()),
-                         objId)
+                         (objId,))
         del self._inMemoryIdMap[objId]
         del self._inMemoryObjects[obj]
     

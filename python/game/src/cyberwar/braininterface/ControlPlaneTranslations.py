@@ -4,13 +4,14 @@ from .translations import MobileAttributeInterface, ObserverAttributeInterface
 from .translations import BrainConnectInterface, BrainConnectResponse
 from .translations import FailureResponse, ResultResponse
 from .translations import MoveCompleteEvent, ScanResponse, ObjectMoveEvent
+from .translations import TangibleAttributeInterface, DamageEvent, StatusCommand, StatusResponse
 from .translations import NetworkTranslator
 
 from ..controlplane.objectdefinitions import Mobile, Observer, Tangible, NamedObject
 from ..controlplane.Directions import Directions
 from ..controlplane.objectdefinitions import ControlPlaneObject
 from ..controlplane.Layer import ObjectMoveRequest, ObjectScanRequest
-from ..controlplane.Layer import ObjectMoveCompleteEvent, ObjectScanResult
+from ..controlplane.Layer import ObjectMoveCompleteEvent, ObjectScanResult, ObjectDamagedEvent
 
 from ..terrain.types import BaseType as BaseTerrainType
 
@@ -49,7 +50,7 @@ class ControlPlaneNetworkTranslator(NetworkTranslator):
 class ControlPlaneBrainConnectCommand(BrainConnectCommand):
     def handle(self, game, object):
         attributes = [a.identifier() for a in object.getAttributes()]
-        return BrainConnectResponse(attributes)
+        return BrainConnectResponse(object.identifier(), attributes)
     
 class GenericTranslator:
     @classmethod
@@ -120,3 +121,16 @@ class ObjectMoveTranslator:
 ObserverAttributeInterface.COMMANDS=[ControlPlaneScanCommand]
 GameMessageToNetworkMessage[ObjectScanResult] = ScanResultTranslator
 GameMessageToNetworkMessage[ChangeContentsEvent] = ObjectMoveTranslator
+
+class ControlPlaneStatusCommand(StatusCommand):
+    def handle(self, game, object):
+        return StatusResponse(ScanResultTranslator.ObservableData(object))
+
+class ObjectDamageTranslator:
+    @classmethod
+    def Translate(cls, message):
+        return DamageEvent(message.TargetObject.identifier(),
+                                  message.Damage, message.TargetDamage,
+                                  message.Message)
+TangibleAttributeInterface.COMMANDS=[ControlPlaneStatusCommand]
+GameMessageToNetworkMessage[ObjectDamagedEvent] = ObjectDamageTranslator

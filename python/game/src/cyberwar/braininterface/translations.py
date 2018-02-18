@@ -47,7 +47,24 @@ class NetworkTranslator:
             return self._events[message.EVENT].Marshall(message)
         raise Exception("Unknown message type {}".format(message))
     
-    def processHeader(self, message):
+    @classmethod
+    def HasHeader(cls, message):
+        return b"\n\n" in message
+    
+    # TODO: Combine this with processHeader. Also, places in the code
+    # like brain connection do their own version. Consolidate
+    @classmethod
+    def HasMessage(cls, message):
+        if not cls.HasHeader(message): return False, None
+        headerIndex = message.index(b"\n\n")
+        mt, m, h = cls.processHeader(message[:headerIndex])
+        blen = int(h.get(b"Content_length", 0))
+        hOff = headerIndex +2
+        if len(message[hOff:]) >= blen: return True, (mt, m, h, hOff, blen)
+        return False, None
+    
+    @classmethod
+    def processHeader(cls, message):
         lines = message.split(b"\n")
         if len(lines) == 0:
             raise Exception("No Message")
@@ -71,9 +88,24 @@ class NetworkTranslator:
         else:
             raise Exception("Unknown Message Type {}".format(mType))
         if msg not in translations:
-            raise Exception("Unknown {} {}".format(mType, msg))
+            raise Exception("Unknown {} {}. Options are {}".format(mType, msg, list(translations.keys())))
         
         return translations[msg].Unmarshall(headers, body)
+    
+class HeartbeatCommand:
+    CMD = b"__heartbeat__"
+    
+    @classmethod
+    def Marshall(cls, cmd):
+        message = b"CMD __heartbeat braininterface/1.0\n"
+        message += b"Content_length: 0\n"
+        message += b"\n"
+        return message
+        
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        return cls()
+
 
 class BrainConnectCommand:
     CMD = b"__connect__"
@@ -99,7 +131,7 @@ class BrainConnectResponse:
     
     @classmethod
     def Marshall(cls, cmd):
-        body = pickle.dumps(cmd.attributes)
+        body = pickle.dumps((cmd.identifier, cmd.attributes))
         bodyLength = "{}".format(len(body))
         message = b"RESPONSE __connect_response__ braininterface/1.0\n"
         message += b"Content_length: " + bodyLength.encode() + b"\n"
@@ -109,10 +141,11 @@ class BrainConnectResponse:
     
     @classmethod
     def Unmarshall(cls, headers, body):
-        attributes = pickle.loads(body)
-        return cls(attributes)
+        identifier, attributes = pickle.loads(body)
+        return cls(identifier, attributes)
     
-    def __init__(self, attributes):
+    def __init__(self, identifier, attributes):
+        self.identifier = identifier
         self.attributes = attributes
         
 class FailureResponse:
@@ -151,10 +184,72 @@ class ResultResponse:
     def __init__(self, message):
         self.message = message
         
+class ReprogramCommand:
+    CMD = b"__reprogram__"
+    
+    @classmethod
+    def Marshall(cls, cmd):
+        body = cmd.data
+        bodyLen = str(len(body)).encode()
+        message = b"CMD __reprogram__ braininterface/1.0\n"
+        message += b"Path: " + cmd.path.encode() + b"\n"
+        message += b"Restart_brain: " + (cmd.restartBrain and b"True" or b"False") + b"\n"
+        message += b"Restart_networking: " + (cmd.restartNetworking and b"True" or b"False") + b"\n"
+        message += b"Delete: " + (cmd.deleteFile and b"True" or b"False") + b"\n"
+        message += b"Content_length: " + bodyLen + b"\n"
+        message += b"\n"
+        message += body
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        restartNetworking = (headers[b"Restart_networking"] == b"True") 
+        restartBrain = (headers[b"Restart_brain"] == b"True") 
+        deleteFile = (headers[b"Delete"] == b"True")
+        return cls(headers[b"Path"].decode(),
+                   body,
+                   restartBrain,
+                   restartNetworking,
+                   deleteFile
+                   )
+    
+    def __init__(self, path, data, restartBrain=False, restartNetworking=False, deleteFile=False):
+        self.path = path
+        self.data = data
+        self.restartBrain = restartBrain
+        self.restartNetworking = restartNetworking
+        if deleteFile and len(self.data) > 0:
+            raise Exception("Cannot delete a file that you are adding contents to")
+        self.deleteFile = deleteFile
+        
+class ReprogramResponse:
+    RESPONSE = b"__reprogram_response__"
+    
+    @classmethod
+    def Marshall(cls, cmd):
+        message = b"RESPONSE __reprogram_response__ braininterface/1.0\n"
+        message += b"Path: " + cmd.path.encode() + b"\n"
+        message += b"Success: " + (cmd.success and b"True" or b"False") + b"\n"
+        message += b"Message: " + cmd.message.encode() + b"\n"
+        message += b"Content_length: 0\n"
+        message += b"\n"
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        return cls(headers[b"Path"].decode(), 
+                   (headers[b"Success"] == b"True"),
+                   headers[b"Message"].decode())
+    
+    def __init__(self, path, success, message):
+        self.path = path
+        self.success = success
+        self.message = message
+        
 class BrainConnectInterface:
     ATTRIBUTE_NAME = "__default__"
-    COMMANDS = [BrainConnectCommand]
-    RESPONSES = [BrainConnectResponse, FailureResponse, ResultResponse]
+    COMMANDS = [BrainConnectCommand, ReprogramCommand]
+    RESPONSES = [BrainConnectResponse, FailureResponse, ResultResponse, ReprogramResponse]
     EVENTS = []
 NetworkTranslator.RegisterAttributeInterface(BrainConnectInterface)
 
@@ -273,5 +368,75 @@ class ObserverAttributeInterface:
     ATTRIBUTE_NAME = "observer"
     COMMANDS = [ScanCommand]
     RESPONSES = [ScanResponse]
-    EVENTS = []
+    EVENTS = [ObjectMoveEvent]
 NetworkTranslator.RegisterAttributeInterface(ObserverAttributeInterface)
+
+class StatusCommand:
+    CMD = b"status"
+    
+    @classmethod
+    def Marshall(cls, event):
+        message = b"CMD status braininterface/1.0\n"
+        message += b"Content_length: 0\n"
+        message += b"\n"
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        return cls()
+    
+class StatusResponse:
+    RESPONSE = b"status_response"
+    
+    @classmethod
+    def Marshall(cls, event):
+        body = pickle.dumps(event.data)
+        bodyLength = str(len(body))
+        message = b"RESPONSE status_response braininterface/1.0\n"
+        message += b"Content_length: " + bodyLength.encode() + b"\n"
+        message += b"\n"
+        message += body
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        data = pickle.loads(body)
+        return cls(data)
+    
+    def __init__(self, observableData):
+        self.data = observableData
+
+class DamageEvent:
+    EVENT = b"damage"
+    
+    @classmethod
+    def Marshall(cls, event):
+        body = pickle.dumps((event.targetObjectIdentifier, 
+                             event.damage, event.targetDamage,
+                             event.message))
+        bodyLength = str(len(body))
+        message = b"EVENT damage braininterface/1.0\n"
+        message += b"Content_length: " + bodyLength.encode() + b"\n"
+        message += b"\n"
+        message += body
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        targetObjectIdentifier, damage, targetDamage, message = pickle.loads(body)
+        return cls(targetObjectIdentifier,
+                   damage, targetDamage,
+                   message)
+        
+    def __init__(self, targetObjectIdentifier, damage, targetDamage, message):
+        self.targetObjectIdentifier = targetObjectIdentifier
+        self.damage = damage
+        self.targetDamage = targetDamage
+        self.message = message
+
+class TangibleAttributeInterface:
+    ATTRIBUTE_NAME='tangible'
+    COMMANDS = [StatusCommand]
+    RESPONSES= [StatusResponse]
+    EVENTS   = [DamageEvent]
+NetworkTranslator.RegisterAttributeInterface(TangibleAttributeInterface)
