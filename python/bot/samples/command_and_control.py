@@ -61,7 +61,7 @@ class RemoteConsole(CLIShell):
         "nw":"north-west"
     }
 
-    def __init__(self, serverFamily="default"):
+    def __init__(self, port, serverFamily="default"):
         super().__init__(prompt=self.STD_PROMPT)
         self._protocolId = 0
         self._selected = None
@@ -270,10 +270,21 @@ class RemoteConsole(CLIShell):
 
 if __name__=="__main__":
     import sys
-    family = "default"
+
+    kargs = {"family":"default", "port":"10013"}
+    args = []
     for arg in sys.argv:
-        if arg.startswith("--family"):
-            family = arg.split("=")[1]
-    shell = RemoteConsole(family)
+        if arg.startswith("--"):
+            if "=" in arg:
+                k,v = arg.split("=")
+            else:
+                k,v = arg, True
+            kargs[k] = v
+        elif arg.startswith('-'):
+            kargs[arg] = True
+        else:
+            args.append(arg)
+
+    shell = RemoteConsole(int(kargs["port"]), kargs["family"])
     asyncio.get_event_loop().call_soon(shell.start)
     asyncio.get_event_loop().run_forever() 
