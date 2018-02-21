@@ -290,15 +290,17 @@ class GameConsole(CLIShell):
             return code
         
     def _initializeBrain(self, brainPath, brainType, **kargs):
-        for requiredFile in BRAIN_REQUIRED_FILES:
-            requiredFQFile = os.path.join(self._brainTemplatesPath, requiredFile)
-            if not os.path.exists(requiredFQFile):
-                raise Exception("Invalid installation. File {} not present.".format(requiredFile))
         brainCode = self._getBrain(brainType, **kargs)
         print("got brainCode")
         if os.path.exists(brainPath):
             raise Exception("Path already exists")
         os.mkdir(brainPath)
+        
+        for requiredFile in BRAIN_REQUIRED_FILES:
+            requiredFQFile = os.path.join(self._brainTemplatesPath, requiredFile)
+            if not os.path.exists(requiredFQFile):
+                raise Exception("Invalid installation. File {} not present.".format(requiredFile))
+            shutil.copy(requiredFQFile, brainPath)
         with open(os.path.join(brainPath, "brain.py"), "w+") as f:
             f.write(brainCode)
         ppath = os.path.join(brainPath, ".playground")
@@ -467,7 +469,7 @@ def main():
         raise Exception("--pypy argument is required.")
         
     
-    asyncio.get_event_loop().set_debug(True)
+    #asyncio.get_event_loop().set_debug(True)
     import logging
     root = logging.getLogger()
     root.addHandler(logging.StreamHandler())

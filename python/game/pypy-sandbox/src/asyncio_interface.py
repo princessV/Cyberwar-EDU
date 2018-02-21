@@ -168,5 +168,6 @@ def playground_connect(host, port, connector, timeout=10):
     coro = playground_connect_coro(host, port, connector)
     future = asyncio.run_coroutine_threadsafe(coro, gLOOP)
     transport, protocol = future.result(timeout)
+    print("Connected to playground on {}".format(transport.get_extra_info("sockname")))
     return protocol
     

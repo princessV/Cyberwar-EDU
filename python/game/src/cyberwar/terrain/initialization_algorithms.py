@@ -24,9 +24,8 @@ class SimpleTerrainInitialization:
         
         waterSquares = self._waterPercent * totalSquares
         waterSquareCache = {}
-        waterGenesisCount = random.randint(2, 5)
-        if waterGenesisCount > 3:
-            waterGenesisCount = waterGenesisCount * waterGenesisCount # 1, 2, 3, 16, 25
+        waterGenesisCount = random.randint(10,26)
+        waterGenesisCount = waterGenesisCount * waterGenesisCount # 1, 2, 3, 16, 25
             
         borderSet = set([])
         while len(waterSquareCache) < waterGenesisCount and len(waterSquareCache) < waterSquares:

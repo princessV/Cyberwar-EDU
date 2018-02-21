@@ -137,6 +137,7 @@ def main():
     # lock in this path.
     asyncio_interface.PLAYGROUND_CFG_PATH = os.path.join(tmpdir, ".playground")
     playground.Configure.AddCustomPath("brain",asyncio_interface.PLAYGROUND_CFG_PATH)
+    playground.reloadConnectors() # Resets the connectors for the new Configure path
     
     sandproc = PyPySandboxedProc(arguments[0], extraoptions + arguments[1:],
                                  tmpdir=tmpdir, debug=debug)

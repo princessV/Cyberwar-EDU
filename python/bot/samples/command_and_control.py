@@ -15,6 +15,7 @@ class RemoteControlProtocol(asyncio.Protocol):
         self.buffer = b""
         self.waitingMessage = None
         self.identifier = "Unknown Object"
+        self.objAttributes = []
 
     def connection_made(self, transport):
         self.transport = transport
@@ -140,10 +141,15 @@ class RemoteConsole(CLIShell):
 
     def handleNetworkData(self, protocol, data):
         if isinstance(data, translations.BrainConnectResponse):
-            self.transport.write("Brain Connected. Attributes={}\n".format(data.attributes))
-            protocol.translator = translations.NetworkTranslator(*data.attributes)
-            protocol.identifier = data.identifier
-            self.transport.write("Attributes Loaded\n\n")
+            if protocol.objAttributes != data.attributes:
+                self.transport.write("Brain Connected. Attributes={}\n".format(data.attributes))
+                self.transport.write("Either new connection or object change")
+                protocol.translator = translations.NetworkTranslator(*data.attributes)
+                protocol.identifier = data.identifier
+                protocol.objAttributes = data.attributes
+                self.transport.write("Attributes Loaded\n\n")
+            else:
+                return # Treat as heartbeat (ignore). 
         elif isinstance(data, translations.FailureResponse):
             self.transport.write("Something's wrong!: {}\n\n ".format( data.message))
         elif isinstance(data, translations.ResultResponse):
@@ -158,7 +164,7 @@ class RemoteConsole(CLIShell):
                 verb = "arrived at"
             else:
                 verb = "left"
-            self.transport.write("{} {} {}".format(data.objectIdentifier, verb, data.location)) 
+            self.transport.write("{} {} {}\n\n".format(data.objectIdentifier, verb, data.location)) 
         elif isinstance(data, translations.StatusResponse):
             self.transport.write("{} status:\n{}\n".format(protocol.identifier, self.createObjectDisplay(data.data, indent="\t")))
         elif isinstance(data, translations.DamageEvent):
@@ -271,7 +277,7 @@ class RemoteConsole(CLIShell):
 if __name__=="__main__":
     import sys
 
-    kargs = {"family":"default", "port":"10013"}
+    kargs = {"--family":"default", "--port":"10013"}
     args = []
     for arg in sys.argv:
         if arg.startswith("--"):
@@ -285,6 +291,6 @@ if __name__=="__main__":
         else:
             args.append(arg)
 
-    shell = RemoteConsole(int(kargs["port"]), kargs["family"])
+    shell = RemoteConsole(int(kargs["--port"]), kargs["--family"])
     asyncio.get_event_loop().call_soon(shell.start)
     asyncio.get_event_loop().run_forever() 
