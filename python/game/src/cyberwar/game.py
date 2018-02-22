@@ -199,6 +199,9 @@ class GameConsole(CLIShell):
     def _loadGame(self):
         if self._gameGenerating:
             raise Exception("Cannot reload config until game generation is complete")
+        for loader in Loaders:
+            loader.InitializeDatabase(self._db)
+            
         store = ObjectStore(self._db)
         store.registerLoader(BrainObjectLoader.OBJECT_TYPE, BrainObjectLoader())
         store.registerLoader(TerrainLoader.OBJECT_TYPE, TerrainLoader())
@@ -223,8 +226,6 @@ class GameConsole(CLIShell):
             print("Still exists?",os.path.exists(self._dbFile))
             self._db = sqlite3.connect(self._dbFile)
         Board.NewBoard(self._db, maxX, maxY)
-        for loader in Loaders:
-            loader.InitializeDatabase(self._db)
         
         self._loadGame()
         
