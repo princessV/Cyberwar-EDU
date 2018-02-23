@@ -16,7 +16,10 @@ def brainLoop():
 #% TEMPLATE-ON
     ccSocketName = "{prot}://{host}:{port}"
 #% TEMPLATE-OFF
-    ccSocket = open(ccSocketName,"rb+")
+    try:
+        ccSocket = open(ccSocketName,"rb+")
+    except:
+        ccSocket = None
 
     loop = 0
     
@@ -46,7 +49,11 @@ def brainLoop():
             ccData = b""
             ccSocket = None 
 
-        if gameData and ccSocket: os.write(ccSocket.fileno(), gameData)
+        if gameData and ccSocket:
+            try: 
+                os.write(ccSocket.fileno(), gameData)
+            except:
+                ccSocket = None
         if ccData: os.write(gameSocket.fileno(), ccData)
 
         if not gameData and not gameDataStream and not ccData:
@@ -55,7 +62,10 @@ def brainLoop():
         if not ccSocket and loop % 60 == 0:
             # if the gamesock didn't open or is dead, try to reconnect
             # once per minute
-            ccSocket = open(ccSocketName, "rb+")
+            try:
+                ccSocket = open(ccSocketName, "rb+")
+            except:
+                ccSocket = None
 
 if __name__=="__main__":
     try:
