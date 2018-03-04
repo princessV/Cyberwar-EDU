@@ -50,7 +50,7 @@ class GeneralConnectionProtocol(asyncio.Protocol):
             offset = hOff + blen
             message, self._messageBuffer = self._messageBuffer[:offset], self._messageBuffer[offset:]
             if not self._handleMessage(mt, m, headers, message[hOff:]):
-                print("did not handle",mt, m)
+                print("Standard handling:",mt, m)
                 self._rBuffer.append(message)
         
     def connection_lost(self, reason=None):
@@ -71,8 +71,21 @@ class GeneralConnectionProtocol(asyncio.Protocol):
             raise Exception("Connection Closed")
         return b"" 
     
+    def _writeWrapper(self, data):
+        try:
+            self.transport.write(data)
+        except:
+            try:
+                self.transport.close()
+            except:
+                pass
+            self.transport=None
+    
     def write(self, data):
-        gLOOP.call_soon_threadsafe(self.transport.write, data)
+        # if we're already closed, throw an exception immediately
+        if self.closed():
+            raise Exception("Connection closed")
+        gLOOP.call_soon_threadsafe(self._writeWrapper, data)
     
     ### File Descriptor Interface for use in VFS
     def seek(self, *args):
@@ -146,11 +159,11 @@ def sandbox_connect(host, port, timeout=10):
     transport, protocol = future.result(timeout)
     return protocol
 
-async def playground_connect_coro(host, port, connector):
-    return await playground.create_connection(PlaygroundConnectionProtocol, 
-                                              host=host, 
-                                              port=port, 
-                                              family=connector)
+async def playground_connect_coro(host, port, connector, timeout):
+    return await playground.getConnector(connector).create_playground_connection(PlaygroundConnectionProtocol, 
+                                              host, 
+                                              port, 
+                                              timeout=timeout)
 
 def playground_connect(host, port, connector, timeout=10):
     print("*******playground connect")
@@ -165,9 +178,15 @@ def playground_connect(host, port, connector, timeout=10):
         raise Exception("No valid playground configuration")
     print("do playground connection using data in", playground.Configure.CurrentPath())
     # ASSUME WE ARE NOT IN MAIN THREAD!!!!
-    coro = playground_connect_coro(host, port, connector)
+    coro = playground_connect_coro(host, port, connector, timeout)
     future = asyncio.run_coroutine_threadsafe(coro, gLOOP)
-    transport, protocol = future.result(timeout)
+    try:
+        transport, protocol = future.result()
+    except asyncio.TimeoutError:
+        print("Cancel playground connect")
+        res = future.cancel()
+        print("Cancel = {}".format(res))
+        raise Exception("Could not connect to playground {}:{} in {} seconds.".format(host, port, timeout))
     print("Connected to playground on {}".format(transport.get_extra_info("sockname")))
     return protocol
     

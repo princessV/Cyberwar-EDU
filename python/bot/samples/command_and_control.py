@@ -43,6 +43,7 @@ class RemoteControlProtocol(asyncio.Protocol):
                     cmd = self.translator.unmarshallFromNetwork(headerType, headerArg, headers, body)
                     self.shell.handleNetworkData(self, cmd)
                 except Exception as e:
+                    print("Could not handle message", headerType, headerArg, headers, body)
                     self.shell.handleNetworkException(self, e)
 
     def connection_lost(self, reason=None):
@@ -268,9 +269,20 @@ class RemoteConsole(CLIShell):
             writer("Unknown Command {}\n\n".format(cmd))
 
 
+    def stop(self):
+        # use list() to make a copy... otherwise closing the protocol
+        # removes it from list, changing the size during iteration
+        # and causing an error
+        for protocol in list(self._protocols.values()):
+            try:
+                protocol.transport.close()
+            except:
+                pass
+        asyncio.get_event_loop().stop()
+
     def start(self):
         loop = asyncio.get_event_loop()
-        self.registerExitListener(lambda reason: loop.call_later(1.0, loop.stop))
+        self.registerExitListener(lambda reason: loop.call_later(1.0, self.stop))
         AdvancedStdio(self)
 
 

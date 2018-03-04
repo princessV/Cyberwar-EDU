@@ -611,7 +611,7 @@ class VirtualizedNetworkProc(VirtualizedSandboxedProc):
                 protocol = asyncio_interface.playground_connect(host, port, connector)
             except Exception as e:
                 print("No connection to {}:{}: {}".format(host, port, e))
-                return None
+                raise RuntimeError("Could not open connection to playground because {}".format(e))
                 #raise RuntimeError("Could not open connection to playground because {}".format(str(e)))
             fd = self.allocate_fd(protocol, ProtocolSocketWrapper())
             self.sockets[fd] = True

@@ -36,7 +36,7 @@ def brainLoop():
             if isinstance(msg, translations.BrainConnectResponse):
                 translator = translations.NetworkTranslator(*msg.attributes)
                 hb = msg
-        if hb and loop % 30 == 0 and ccSocket:
+        if (not gameData) and hb and (loop % 30 == 0) and ccSocket:
             # every thirty seconds, send heartbeat to cc
             try:
                 os.write(ccSocket.fileno(), translator.marshallToNetwork(hb))
@@ -44,7 +44,10 @@ def brainLoop():
                 ccSocket = None
         
         try:            
-            ccData = os.read(ccSocket.fileno(), 1024)
+            if ccSocket:
+                ccData = os.read(ccSocket.fileno(), 1024)
+            else:
+                ccData = b""
         except:
             ccData = b""
             ccSocket = None 
