@@ -52,7 +52,11 @@ class BrainEnabled(ControlPlaneObjectAttribute):
             raise Exception("Cannot start brain. Pypy path not configured.")
         # Turn on PNetworking
         subprocess.call("pnetworking on", shell=True, cwd=self._directory)
-        args = ["python", "./brain_interact.py", "--tmp={}".format(self._directory),
+        
+        # NOTE ON HEAPSIZE. PyPy currently breaks if heapsize is too small. Even 10m was
+        # too small. Based on some internal stuff in pypy, I decided to try 32m and that
+        # seemed to work.
+        args = ["python", "./brain_interact.py", "--heapsize=32m", "--tmp={}".format(self._directory),
                 "--gameobj={}".format(self._brainIdentifier), 
                 "pypy3-c-sandbox", "-S", "brain.py"]
         print("Starting",args)

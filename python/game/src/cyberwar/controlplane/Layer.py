@@ -130,7 +130,6 @@ class ControlLayer(LayerBase):
                 
                 # Is this an Observer? If so, track it
                 if self._isObserver(event.Object):
-                    print("Loading object {} into observations".format(event.Object))
                     self._observerTracking.observe(event.Object, (event.X, event.Y))
                 
             elif event.Operation == ChangeContentsEvent.REMOVE:
