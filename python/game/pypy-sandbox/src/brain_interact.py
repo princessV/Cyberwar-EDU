@@ -103,18 +103,18 @@ def main():
         elif option == '--heapsize':
             value = value.lower()
             if value.endswith('k'):
-                bytes = int(value[:-1]) * 1024
+                hbytes = int(value[:-1]) * 1024
             elif value.endswith('m'):
-                bytes = int(value[:-1]) * 1024 * 1024
+                hbytes = int(value[:-1]) * 1024 * 1024
             elif value.endswith('g'):
-                bytes = int(value[:-1]) * 1024 * 1024 * 1024
+                hbytes = int(value[:-1]) * 1024 * 1024 * 1024
             else:
-                bytes = int(value)
-            if bytes <= 0:
+                hbytes = int(value)
+            if hbytes <= 0:
                 raise ValueError
-            if bytes > sys.maxint:
-                raise OverflowError("--heapsize maximum is %d" % sys.maxint)
-            extraoptions[:0] = ['--heapsize', str(bytes)]
+            if hbytes > sys.maxsize:
+                raise OverflowError("--heapsize maximum is %d" % sys.maxsize)
+            extraoptions[:0] = ['--heapsize', str(hbytes)]
         elif option == '--timeout':
             timeout = int(value)
         elif option == '--log':
