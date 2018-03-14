@@ -86,7 +86,7 @@ class RemoteConsole(CLIShell):
         self.registerCommand(listobjectsHandler)
         self.registerCommand(reprogramHandler)
 
-        coro = playground.create_server(lambda: RemoteControlProtocol(self), port=10013, family=serverFamily)
+        coro = playground.create_server(lambda: RemoteControlProtocol(self), port=port, family=serverFamily)
         asyncio.ensure_future(coro)
 
     def addConnection(self, protocol):
