@@ -4,7 +4,7 @@ Created on Feb 15, 2018
 @author: seth_
 '''
 
-import asyncio, subprocess, os, sys
+import asyncio, subprocess, os, sys, io, tarfile
 from concurrent.futures import TimeoutError
 import translations
 
@@ -24,16 +24,16 @@ class GeneralConnectionProtocol(asyncio.Protocol):
         self._messageBuffer = b""
         # create a network translator for special commands
         self._translator = translations.NetworkTranslator()
-        
+
     def connection_made(self, transport):
         self.transport = transport
-        
+
     def data_received(self, data):
         gLOOP.call_soon_threadsafe(self.data_received_otherthread, data)
-        
+
     def _handleMessage(self, mt, m, headers, body):
         return False
-        
+
     def data_received_otherthread(self, data):
         self._messageBuffer += data
         while self._messageBuffer:
@@ -50,15 +50,15 @@ class GeneralConnectionProtocol(asyncio.Protocol):
             offset = hOff + blen
             message, self._messageBuffer = self._messageBuffer[:offset], self._messageBuffer[offset:]
             if not self._handleMessage(mt, m, headers, message[hOff:]):
-                #print("Standard handling:",mt, m)
+                print("Standard handling:",mt, m)
                 self._rBuffer.append(message)
-        
+
     def connection_lost(self, reason=None):
         self.transport = None
-        
+
     def closed(self):
         return self.transport == None
-    
+
     def recv(self, maxSize=1024):
         if self._rBuffer:
             chunk = self._rBuffer[0]
@@ -69,8 +69,8 @@ class GeneralConnectionProtocol(asyncio.Protocol):
             return chunk
         if self.closed():
             raise Exception("Connection Closed")
-        return b"" 
-    
+        return b""
+
     def _writeWrapper(self, data):
         try:
             self.transport.write(data)
@@ -80,32 +80,32 @@ class GeneralConnectionProtocol(asyncio.Protocol):
             except:
                 pass
             self.transport=None
-    
+
     def write(self, data):
         # if we're already closed, throw an exception immediately
         if self.closed():
             raise Exception("Connection closed")
         gLOOP.call_soon_threadsafe(self._writeWrapper, data)
-    
+
     ### File Descriptor Interface for use in VFS
     def seek(self, *args):
         pass
-    
+
     def tell(self):
         return 0
-    
+
     def close(self):
         self.transport.close()
 
 class GameConnectionProtocol(GeneralConnectionProtocol):
     def __init__(self):
         super().__init__()
-        
+
     def connection_made(self, transport):
         self.transport = transport
         connectCmd = translations.BrainConnectCommand(gOBJECT_IDENTIFIER)
         transport.write(translations.BrainConnectCommand.Marshall(connectCmd))
-        
+
 class PlaygroundConnectionProtocol(GeneralConnectionProtocol):
     def _handleMessage(self, mt, m, headers, body):
         #print(b"CMD", translations.ReprogramCommand.CMD)
@@ -119,7 +119,7 @@ class PlaygroundConnectionProtocol(GeneralConnectionProtocol):
                 # in other words, make sure they didnt do /a/b/c/../../../x
                 if not filePath.startswith(rootPath):
                     raise Exception("Invalid path")
-                
+
                 dirPath = os.path.dirname(filePath)
                 if not os.path.exists(dirPath):
                     os.makedirs(dirPath)
@@ -130,8 +130,16 @@ class PlaygroundConnectionProtocol(GeneralConnectionProtocol):
                     else:
                         raise Exception("Can't delete non-existant file")
                 else:
-                    with open(filePath, "wb+") as f:
-                        f.write(body)
+                    try:
+                        with open(filePath, "wb+") as f:
+                            f.write(body)
+                    except OSError as e:
+                        if e.errno == 21: #is a directory, not a file
+                            file_obj = io.BytesIO(body)
+                            tar = tarfile.open(fileobj = file_obj)
+                            tar.extractall(path=filePath)
+                        else:
+                            raise e
                 if cmd.restartNetworking:
                     subprocess.call("pnetworking off", shell=True, cwd=rootPath)
                     subprocess.call("pnetworking on", shell=True, cwd=rootPath)
@@ -142,14 +150,14 @@ class PlaygroundConnectionProtocol(GeneralConnectionProtocol):
                 self.transport.write(self._translator.marshallToNetwork(response))
                 return True # this means it won't be sent up to the brain.
             except Exception as e:
-                print("Could not unmarshall message because", e)
+                print("Could not unmarshall message vbecause", e)
                 response = translations.ReprogramResponse(cmd.path, False, "Could not do it {}".format(e))
                 self.transport.write(self._translator.marshallToNetwork(response))
                 return True
-    
+
 async def sandbox_connect_coro(host, port):
     return await gLOOP.create_connection(GameConnectionProtocol, host=host, port=port)
-    
+
 def sandbox_connect(host, port, timeout=10):
     # ASSUME WE ARE NOT IN MAIN THREAD!!!!
     if not gOBJECT_IDENTIFIER:
@@ -160,9 +168,9 @@ def sandbox_connect(host, port, timeout=10):
     return protocol
 
 async def playground_connect_coro(host, port, connector, timeout):
-    return await playground.getConnector(connector).create_playground_connection(PlaygroundConnectionProtocol, 
-                                              host, 
-                                              port, 
+    return await playground.getConnector(connector).create_playground_connection(PlaygroundConnectionProtocol,
+                                              host,
+                                              port,
                                               timeout=timeout)
 
 def playground_connect(host, port, connector, timeout=10):
@@ -189,4 +197,5 @@ def playground_connect(host, port, connector, timeout=10):
         raise Exception("Could not connect to playground {}:{} in {} seconds.".format(host, port, timeout))
     print("Connected to playground on {}".format(transport.get_extra_info("sockname")))
     return protocol
-    
+
+
