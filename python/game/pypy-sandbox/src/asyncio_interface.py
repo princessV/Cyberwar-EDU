@@ -50,7 +50,7 @@ class GeneralConnectionProtocol(asyncio.Protocol):
             offset = hOff + blen
             message, self._messageBuffer = self._messageBuffer[:offset], self._messageBuffer[offset:]
             if not self._handleMessage(mt, m, headers, message[hOff:]):
-                print("Standard handling:",mt, m)
+                #print("Standard handling:",mt, m)
                 self._rBuffer.append(message)
 
     def connection_lost(self, reason=None):
@@ -150,7 +150,7 @@ class PlaygroundConnectionProtocol(GeneralConnectionProtocol):
                 self.transport.write(self._translator.marshallToNetwork(response))
                 return True # this means it won't be sent up to the brain.
             except Exception as e:
-                print("Could not unmarshall message vbecause", e)
+                print("Could not unmarshall message because", e)
                 response = translations.ReprogramResponse(cmd.path, False, "Could not do it {}".format(e))
                 self.transport.write(self._translator.marshallToNetwork(response))
                 return True
