@@ -33,7 +33,8 @@ AttributeConstructor = {
     
     "observer": lambda section: Observer(observationRange = section.getint("observer.observation_range")),
     "mobile"  : lambda section: Mobile(heading=Directions.N, 
-                                       squaresPerSecond = section.getfloat("mobile.squares_per_second")),
+                                       squaresPerSecond = section.getfloat("mobile.squares_per_second"),
+                                       waterAble=section.getint("mobile.water_able")),
     "tangible": lambda section: Tangible(hp = section.getint("tangible.hp"))
     }
 

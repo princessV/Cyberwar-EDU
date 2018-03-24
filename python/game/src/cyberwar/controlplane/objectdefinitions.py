@@ -128,7 +128,7 @@ class Tangible(ControlPlaneObjectAttribute):
 class Mobile(ControlPlaneObjectAttribute):
     REQUIRED = [Tangible]
     
-    def __init__(self, heading, squaresPerSecond):
+    def __init__(self, heading, squaresPerSecond, waterAble=0):
         super().__init__("mobile")
         if heading not in Directions:
             raise Exception("{} is not a valid heading (direction).".format(heading))
@@ -136,7 +136,9 @@ class Mobile(ControlPlaneObjectAttribute):
         self._squaresPerSecond = squaresPerSecond
         
     def heading(self): return self._heading
-    
+
+    def waterAble(self): return self._waterAble
+
     def squaresPerSecond(self):
         healthPercent = self.getCoattribute(Tangible).health()
         return self._squaresPerSecond * (healthPercent/100.0)
