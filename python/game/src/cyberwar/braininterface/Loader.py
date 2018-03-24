@@ -28,6 +28,7 @@ class BrainEnabled(ControlPlaneObjectAttribute):
     
     @classmethod
     def ShutdownAll(cls):
+        print("Shutdown all {}".format(cls.RUNNING_PIDS))
         brains = list(cls.RUNNING_PIDS) # make a copy. stop clears itself from list
         for brain in brains:
             brain.stop()
@@ -44,12 +45,19 @@ class BrainEnabled(ControlPlaneObjectAttribute):
         
         self.start()
         
+    def __str__(self):
+        return "Brain({}, {})".format(self._directory, self._brainIdentifier)
+    
+    def brainPath(self):
+        return self._directory
+        
     def brainIdentifier(self):
         return self._brainIdentifier
         
     def start(self, retryCount=0):
         if not Loader.PYPY_PATH:
             raise Exception("Cannot start brain. Pypy path not configured.")
+        self._stopped = False
         # Turn on PNetworking
         subprocess.call("pnetworking on", shell=True, cwd=self._directory)
         
@@ -77,6 +85,7 @@ class BrainEnabled(ControlPlaneObjectAttribute):
         kill(self._pid)
         
         # shutdown pnetworking
+        print("calling pnetworking off in {}".format(self._directory))
         subprocess.call("pnetworking off", shell=True, cwd=self._directory)
         
         self.RUNNING_PIDS.remove(self)

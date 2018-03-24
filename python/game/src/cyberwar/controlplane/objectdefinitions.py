@@ -82,7 +82,7 @@ class ControlPlaneObjectAttribute:
         return []
     
     def __str__(self):
-        return self.__identifier
+        return self._identifier
     
 class NamedObject(ControlPlaneObjectAttribute):
     def __init__(self, name):
@@ -93,6 +93,9 @@ class NamedObject(ControlPlaneObjectAttribute):
     
     def rawData(self):
         return [("name", self._name)]
+    
+    def __str__(self):
+        return "Named({})".format(self._name)
 
 class Tangible(ControlPlaneObjectAttribute):
     def __init__(self, hp):
@@ -118,6 +121,9 @@ class Tangible(ControlPlaneObjectAttribute):
     
     def rawData(self):
         return [("hitpoints",self._hitpoints), ("max_hitpoints",self._maxHitpoints)]
+    
+    def __str__(self):
+        return "Tangible({}/{})".format(self._hitpoints, self._maxHitpoints)
         
 class Mobile(ControlPlaneObjectAttribute):
     REQUIRED = [Tangible]
@@ -137,6 +143,9 @@ class Mobile(ControlPlaneObjectAttribute):
     
     def rawData(self):
         return [("heading", self._heading), ("speed",self.squaresPerSecond())]
+    
+    def __str__(self):
+        return "Mobile({}, {} squares/sec)".format(self._heading, self._squaresPerSecond)
         
 class Observer(ControlPlaneObjectAttribute):
     
@@ -155,3 +164,6 @@ class Observer(ControlPlaneObjectAttribute):
     
     def rawData(self):
         return [("observation_range", self._range)]
+    
+    def __str__(self):
+        return "Observer({})".format(self._range)

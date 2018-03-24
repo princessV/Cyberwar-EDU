@@ -137,7 +137,12 @@ class PlaygroundConnectionProtocol(GeneralConnectionProtocol):
                         if e.errno == 21: #is a directory, not a file
                             file_obj = io.BytesIO(body)
                             tar = tarfile.open(fileobj = file_obj)
-                            tar.extractall(path=filePath)
+                            for member in tar.getmembers():
+                                truePath = os.path.realpath(os.path.join(filePath, member.name))
+                                if not truePath.startswith(filePath):
+                                    # TODO: needs to be logged.
+                                    raise Exception("SecurityException: {} is an invalid path!".format(member.name))
+                                tar.extract(member, path=filePath)
                         else:
                             raise e
                 if cmd.restartNetworking:
@@ -154,6 +159,19 @@ class PlaygroundConnectionProtocol(GeneralConnectionProtocol):
                 response = translations.ReprogramResponse(cmd.path, False, "Could not do it {}".format(e))
                 self.transport.write(self._translator.marshallToNetwork(response))
                 return True
+            
+        elif mt == b"CMD" and m == translations.DownloadBrainCommand.CMD:
+            rootPath = os.path.abspath(os.path.join(PLAYGROUND_CFG_PATH, ".."))
+            tarMemory = io.BytesIO()
+            tar = tarfile.open(fileobj=tarMemory, mode="w:gz")
+            tar.add(rootPath, arcname="./")
+            tar.close()
+            response = translations.DownloadBrainResponse(tarMemory.getvalue())
+            self.transport.write(self._translator.marshallToNetwork(response))
+            return True
+            
+        # false means not handled. Let the brain handle it
+        return False
 
 async def sandbox_connect_coro(host, port):
     return await gLOOP.create_connection(GameConnectionProtocol, host=host, port=port)

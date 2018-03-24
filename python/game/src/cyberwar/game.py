@@ -6,7 +6,8 @@ from playground.network.devices.vnic.connect import NetworkManager
 
 from .core.ObjectStore import ObjectStore
 from .core.Layer import StartGameRequest
-from .core.Board import Board, PutRequest, DimensionsRequest, ContentsRequest, ReleaseObjectRequest
+from .core.Board import Board, PutRequest, DimensionsRequest, ContentsRequest 
+from .core.Board import LocateRequest, ReleaseObjectRequest, RemoveRequest
 
 from .terrain.Loader import Loader as TerrainLoader
 from .terrain.Layer import Layer as TerrainLayer
@@ -19,6 +20,7 @@ from .controlplane.objectdefinitions import Mobile, Observer, Tangible, ControlP
 from .controlplane.Directions import Directions
 
 from .braininterface.Loader import Loader as BrainObjectLoader
+from .braininterface.Loader import BrainEnabled
 from .braininterface.Layer import Layer as BrainControlLayer
 from .braininterface.Layer import CreateBrainControlledObjectRequest, GetBrainObjectByIdentifier
 
@@ -139,19 +141,37 @@ class GameConsole(CLIShell):
         newgameCommandHandler = Command("newgame",
                                         "Create a new game (erase any existing game data!)",
                                         self._newGameCommand)
-        createobjCommandHandler = Command("createobj",
-                                          "Create a new player object. Specify x,y, type, brain_type",
-                                          self._newPlayerObjectCommand)
+        
+        objectCommandHandler =              Command("gameobj", "Game Object Control", 
+                                                    self._objControl, 
+                                                    mode=Command.SUBCMD_MODE)
+        objectCreateSubcommmandHandler =    Command("create", "Create a new game object. Args: x, y, object_type, *object_args",
+                                                    self._newGameObjectCommand)
+        objectListSubcommandHandler =       Command("list", "List all objects along with ids",
+                                                    self._listGameObjectsCommand)
+        objectDestroySubcommandHandler =    Command("destroy", "Destroy an object by ID",
+                                                    self._destroyGameObjectCommand)
+        objectMoveSubcommandHandler =       Command("move", "Move an object by ID. Args: object_id, new_x, new_y",
+                                                    self._moveGameObjectCommand)
+        objectResetSubcommandHandler =      Command("reset", "Reset a brain controlled object. Args: object_id, *restart_args",
+                                                    self._resetBrainObjectCommand)
+        objectRestartSubcommandHandler =    Command("restart", "Restart a brain controlled object by ID",
+                                                    self._restartBrainObjectCommand)
+        
+        objectCommandHandler.configureSubcommand(objectCreateSubcommmandHandler)
+        objectCommandHandler.configureSubcommand(objectListSubcommandHandler)
+        objectCommandHandler.configureSubcommand(objectDestroySubcommandHandler)
+        objectCommandHandler.configureSubcommand(objectMoveSubcommandHandler)
+        objectCommandHandler.configureSubcommand(objectResetSubcommandHandler)
+        objectCommandHandler.configureSubcommand(objectRestartSubcommandHandler)
+        
         printmapCommandHandler = Command("printmap",
                                          "Print a text map of the whole board",
                                          self._printMapCommand)
-        destroyCommandHandler  = Command("destroyobj",
-                                         "Destroy a player object on the map by identifier",
-                                         self._destroyObjectCommand)
+
         self.registerCommand(newgameCommandHandler)
-        self.registerCommand(createobjCommandHandler)
+        self.registerCommand(objectCommandHandler)
         self.registerCommand(printmapCommandHandler)
-        self.registerCommand(destroyCommandHandler)
         self._reloadConfiguration()
         
     def _reloadConfiguration(self):
@@ -341,6 +361,16 @@ class GameConsole(CLIShell):
         if not r:
             raise Exception(r.Value)
         
+    def _objControl(self, writer, *args):
+        writer("Error. No sub command")
+        
+    def _newGameObjectCommand(self, writer, x, y, objectType, *objectArgs):
+        if objectType in self._playerObjectTypes:
+            return self._newPlayerObjectCommand(writer, x, y, objectType, objectArgs[0], objectArgs[1:])
+        # TODO: Eventually, can have NPC's and other control plane objects.
+        # But for now, only have brain controlled stuff.
+        writer("Unknown object type {}\n".format(objectType))
+        
     def _newPlayerObjectCommand(self, writer, x, y, objectType, brainType, *brainArgs):
         if not self._game:
             writer("Cannot create object until game starts.\n\n")
@@ -351,6 +381,18 @@ class GameConsole(CLIShell):
             writer("{} object created at {}\n\n.".format(objectType, (x,y)))
         except Exception as e:
             writer("{} could not be created. {}\n\n".format(objectType, e))
+            
+    def _listGameObjectsCommand(self, writer):
+        for objId in ControlPlaneObject.OBJECT_LOOKUP:
+            cpObject = ControlPlaneObject.OBJECT_LOOKUP[objId]
+            locateResponse = self._game.send(LocateRequest("game", cpObject))
+            if not locateResponse:
+                continue
+            attrString = ", ".join([str(a) for a in cpObject.getAttributes()])
+            writer("{}: {} at {}. Attributes = {}\n".format(objId, cpObject.identifier(), 
+                                                      locateResponse.Value, 
+                                                      attrString))
+        writer("\n")
             
     """def _resetBrainCommand(self, writer, objectId, brainType, *brainArgs):
         objectId = int(objectId)
@@ -405,12 +447,84 @@ class GameConsole(CLIShell):
             line = ""
         writer(s+"\n")
         
-    def _destroyObjectCommand(self, writer, objId):
-        objResult = self._game.send(GetBrainObjectByIdentifier("game", int(objId)))
-        if not objResult:
-            writer("Could not find object with id {}\n\n".format(objId))
+    def _moveGameObjectCommand(self, writer, objectId, x, y):
+        objectId = int(objectId)
+        if objectId not in ControlPlaneObject.OBJECT_LOOKUP:
+            writer("Unknown object {}\n\n".format(objectId))
             return
-        releaseResult = self._game.send(ReleaseObjectRequest("game", objResult.Value))
+        
+        gameObject = ControlPlaneObject.OBJECT_LOOKUP[objectId]
+        x,y = int(x), int(y)
+        
+        removeResponse = self._game.send(RemoveRequest("game", gameObject))
+        if not removeResponse:
+            writer("Could not remove {} from current location.\n\n".format(gameObject.identifier()))
+            return
+        
+        putResponse = self._game.send(PutRequest("game", x, y, gameObject))
+        if not putResponse:
+            writer("Could not move {} to {}\n\n".format(gameObject.identifier(), (x,y)))
+            return
+        
+        writer("{} moved to {}\n\n".format(gameObject.identifier(), (x,y)))
+        
+    def _resetBrainObjectCommand(self, writer, objectId, brainType, *brainArgs):
+        objectId = int(objectId)
+        if objectId not in ControlPlaneObject.OBJECT_LOOKUP:
+            writer("Unknown object {}\n\n".format(objectId))
+            return
+        
+        gameObject = ControlPlaneObject.OBJECT_LOOKUP[objectId]
+        
+        brainAttr = gameObject.getAttribute(BrainEnabled)
+        if not brainAttr:
+            writer("{} does not have a brain.\n\n".format(gameObject.identifier()))
+            return
+        
+        kargs = {}
+        for argpair in brainArgs:
+            try:
+                k,v = argpair.split("=")
+                kargs[k] = v
+            except Exception as e:
+                raise Exception("Cannot create object. Requires a list of k=v pairs to brain template. Error={}".format(e))
+
+        writer("Rewriting {}'s brain\n".format(gameObject.identifier()))
+        writer("\tStop brain.\n")
+        brainAttr.stop()
+        writer("\tDelete original brain {}\n".format(brainAttr.brainPath()))
+        shutil.rmtree(brainAttr.brainPath())
+        writer("\tRecreate brain as {} - {}\n".format(brainType, kargs))
+        self._initializeBrain(brainAttr.brainPath(), brainType, **kargs)
+        asyncio.get_event_loop().call_later(2.0, brainAttr.start)
+        writer("{}'s brain reset. Will restart in 2.0 seconds.\n\n".format(gameObject.identifier()))
+        
+    def _restartBrainObjectCommand(self, writer, objectId, *restartArgs):
+        objectId = int(objectId)
+        if objectId not in ControlPlaneObject.OBJECT_LOOKUP:
+            writer("Unknown object {}\n\n".format(objectId))
+            return
+        
+        gameObject = ControlPlaneObject.OBJECT_LOOKUP[objectId]
+        
+        brainAttr = gameObject.getAttribute(BrainEnabled)
+        if not brainAttr:
+            writer("{} does not have a brain.\n\n".format(gameObject.identifier()))
+            return
+        
+        brainAttr.stop()
+        asyncio.get_event_loop().call_later(2.0, brainAttr.start)
+        writer("{}'s brain turned off. Will restart in 2.0 seconds.\n\n".format(gameObject.identifier()))
+        
+    def _destroyGameObjectCommand(self, writer, objectId):
+        objectId = int(objectId)
+        if objectId not in ControlPlaneObject.OBJECT_LOOKUP:
+            writer("Unknown object {}\n\n".format(objectId))
+            return
+        
+        gameObject = ControlPlaneObject.OBJECT_LOOKUP[objectId]
+
+        releaseResult = self._game.send(ReleaseObjectRequest("game", gameObject))
         if not releaseResult:
             writer("Could not release object. Reason {}\n\n".format(releaseResult.Value))
             return

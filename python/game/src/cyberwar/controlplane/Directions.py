@@ -22,6 +22,9 @@ class Direction:
     def __eq__(self, d):
         return isinstance(d, Direction) and d._xDelta == self._xDelta and d._yDelta == self._yDelta
     
+    def __str__(self):
+        return self.name()
+    
 class DirectionsContainer:
     def __init__(self):
         # bottom of board is 0,0, so higher numbers are north and east.

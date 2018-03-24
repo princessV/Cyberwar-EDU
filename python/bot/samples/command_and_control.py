@@ -1,5 +1,5 @@
 import playground
-import asyncio, os
+import time, asyncio, os
 
 from playground.common.io.ui.CLIShell import CLIShell, AdvancedStdio
 
@@ -81,10 +81,14 @@ class RemoteConsole(CLIShell):
         reprogramHandler    = Command("reprogram",
                                       "reprogram bot. Careful. Don't BRICK it.",
                                       self._reprogramCommand)
+        downloadBrainHandler= Command("download_brain",
+                                      "download the bot's current brain as a tar ball.",
+                                      self._downloadBrainCommand)
         self.registerCommand(switchobjectHandler)
         self.registerCommand(sendcommandHandler)
         self.registerCommand(listobjectsHandler)
         self.registerCommand(reprogramHandler)
+        self.registerCommand(downloadBrainHandler)
 
         coro = playground.create_server(lambda: RemoteControlProtocol(self), port=port, family=serverFamily)
         asyncio.ensure_future(coro)
@@ -172,6 +176,12 @@ class RemoteConsole(CLIShell):
             self.transport.write("{} hit {} for {} points of damage (took {} points of damage). {}".format(protocol.identifier, data.targetObjectIdentifier, data.targetDamage, data.damage, data.message))
         elif isinstance(data, translations.ReprogramResponse):
             self.transport.write("Reprogram of {} {}. {}\n\n".format(data.path, (data.success and "successful" or "unsuccessful"), data.message))
+        elif isinstance(data, translations.DownloadBrainResponse):
+            tarData = data.data
+            tarName = "brain.{}.tar.gz".format(time.time())
+            with open(tarName, "wb+") as f:
+                f.write(tarData)
+            self.transport.write("Downloaded brain as {}.\n\n".format(tarName))
         else:
             self.transport.write("Got {}\n\n".format(data))
         self.transport.refreshDisplay()
@@ -193,6 +203,22 @@ class RemoteConsole(CLIShell):
             writer("Object {} selected\n".format(arg1))
             self.prompt = "[{}] >> ".format(arg1)
         writer("\n")
+
+    def _downloadBrainCommand(self, writer):
+        protocol = self._protocols.get(self._selected, None)
+        if self._selected is None:
+            writer("No remote object selected.\n\n")
+            return
+        if protocol is None:
+            writer("Selected object no longer available. \n\n")
+            self.prompt = self.STD_PROMPT
+            return
+        cmdObj = translations.DownloadBrainCommand()
+        sendData = protocol.translator.marshallToNetwork(cmdObj)
+        protocol.transport.write(sendData) 
+        writer("Download command sent. \n\n")
+
+
 
     def _reprogramCommand(self, writer, subcmd, *args):
         args = list(args) # convert to list... I want to use .pop

@@ -184,6 +184,40 @@ class ResultResponse:
     def __init__(self, message):
         self.message = message
         
+class DownloadBrainCommand:
+    CMD = b"__download_brain__"
+    
+    @classmethod
+    def Marshall(cls, cmd):
+        message = b"CMD __download_brain__ braininterface/1.0\n" 
+        message += b"Content_length: 0\n"
+        message += b"\n"
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        return cls()
+    
+class DownloadBrainResponse:
+    RESPONSE = b"__download_brain_response__"
+    
+    @classmethod
+    def Marshall(cls, cmd):
+        body = cmd.data
+        bodyLen = str(len(body)).encode()
+        message = b"RESPONSE __download_brain_response__ braininterface/1.0\n"
+        message += b"Content_length: " + bodyLen + b"\n"
+        message += b"\n"
+        message += body
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        return cls(body)
+    
+    def __init__(self, brainZip):
+        self.data = brainZip
+        
 class ReprogramCommand:
     CMD = b"__reprogram__"
     
@@ -248,8 +282,9 @@ class ReprogramResponse:
         
 class BrainConnectInterface:
     ATTRIBUTE_NAME = "__default__"
-    COMMANDS = [BrainConnectCommand, ReprogramCommand]
-    RESPONSES = [BrainConnectResponse, FailureResponse, ResultResponse, ReprogramResponse]
+    COMMANDS = [BrainConnectCommand, ReprogramCommand, DownloadBrainCommand]
+    RESPONSES = [BrainConnectResponse, FailureResponse, ResultResponse, 
+                 ReprogramResponse, DownloadBrainResponse]
     EVENTS = []
 NetworkTranslator.RegisterAttributeInterface(BrainConnectInterface)
 
