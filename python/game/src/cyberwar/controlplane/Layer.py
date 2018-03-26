@@ -14,6 +14,8 @@ from .objectdefinitions import Observer, Mobile, Tangible
 from .RangedLookup import RangedLookup
 from .Directions import Directions
 
+from ..terrain.types import *
+
 import asyncio, random
 
 # REQUESTS
@@ -155,7 +157,31 @@ class ControlLayer(LayerBase):
                                                                  "Object not on game board"
                                                                  ))
             return
-        
+
+        contentsResult = self._lowerLayer.send(ContentsRequest(self.LAYER_NAME,
+                                                               newLocation[0],
+                                                               newLocation[1]))
+        contents = contentsResult.Value
+        for obj in contents:
+            if isinstance(obj, Water):
+
+                # check if the object if waterable
+
+                myMobileAttr = request.Object.getAttribute(Mobile)
+                if myMobileAttr.waterAble() == 2:
+                    # change this to myMobileAttr.waterAble() == 0 to stop tank and rover move into water
+
+                    errorMessage = "Could not move to {} because '{}'".format(objectLocation,
+                                                                              "can not move into water")
+                    if self._upperLayer:
+                        self._upperLayer.receive(ObjectMoveCompleteEvent(request.sender(),
+                                                                         request.Object,
+                                                                         objectLocation,
+                                                                         errorMessage
+                                                                         ))
+                    return
+
+                    # my add end
         
         objectLocation = result.Value
         newLocation = request.Direction.getSquare(objectLocation)
