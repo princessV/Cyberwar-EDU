@@ -108,10 +108,10 @@ class RemoteConsole(CLIShell):
         self.transport.write("Network Failure: {}\n\n".format(e))
 
     def createObjectDisplay(self, objectData, indent=""):
-       s = ""
-       for key, value in objectData:
-           s += "{}{}: {}\n".format(indent, key, value)
-       return s 
+        s = ""
+        for key, value in objectData:
+            s += "{}{}: {}\n".format(indent, key, value)
+        return s
 
     def createScanResultsDisplay(self, scanResults):
         mapPart = ""
