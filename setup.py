@@ -70,7 +70,7 @@ setup(
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
-    packages=find_packages(exclude=['prototype_core']),
+    packages=find_packages('python', exclude=['prototype_core']),
 
     # Alternatively, if you want to distribute just a my_module.py, uncomment
     # this:
