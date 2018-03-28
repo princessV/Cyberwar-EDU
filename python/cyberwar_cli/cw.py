@@ -17,10 +17,10 @@ def processing():
 
 def run(args):
     if args.mode == 'init':
-        command = 'PYTHONPATH={}/python/game/src/ python -m cyberwar.game --init={},{},{}'.format(CONFIG['cywe_path'], args.host, args.port, args.playground_address)
+        command = 'PYTHONPATH={}/game/src/ python -m cyberwar.game --init={},{},{}'.format(CONFIG['site_packages_path'], args.host, args.port, args.playground_address)
         os.system(command)
     elif args.mode == 'launch':
-        command = 'PYTHONPATH={}/python/game/src/ python -m cyberwar.game --pypy={}'.format(CONFIG['cywe_path'], CONFIG['pypy_path'])
+        command = 'PYTHONPATH={}/game/src/ python -m cyberwar.game --pypy={}'.format(CONFIG['site_packages_path'], CONFIG['pypy_path'])
         os.system(command)
 
 

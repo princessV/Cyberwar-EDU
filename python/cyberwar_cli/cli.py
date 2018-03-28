@@ -16,13 +16,13 @@ class BColors:
 class CyWECLI():
     def __init__(self):
         super().__init__()
-        self.cywe_path = os.path.abspath(os.path.join(MY_PATH, os.pardir, os.pardir))
+        self.site_packages_path = os.path.abspath(os.path.join(MY_PATH, os.pardir))
         self.arg_dict = {}
 
     def start(self):
         print(BColors.HEADER + '\n This CLI helps your rapidly create your own game. \n' + BColors.ENDC)
-        print(BColors.HEADER + '   A game directory will be created in current directory.' + BColors.ENDC)
-        print(BColors.HEADER + '   Input .exit to exit. \n' + BColors.ENDC)
+        print(BColors.HEADER + ' A game directory will be created in current directory.' + BColors.ENDC)
+        print(BColors.HEADER + ' Input .exit to exit. \n' + BColors.ENDC)
 
         self.arg_dict['name'] = self.get_input_path('name',
                                                     BColors.OKBLUE + 'Your cyberwar directory name:\n' + BColors.ENDC)
@@ -37,7 +37,7 @@ class CyWECLI():
     def processing(self):
         os.mkdir(self.arg_dict['name'])
 
-        self.copy_files_from_cywe(self.arg_dict['name'], self.cywe_path)
+        self.copy_files_from_cywe(self.arg_dict['name'])
 
         os.system('cp {}/pypy/sandbox/libpypy3-c.so {}/'.format(self.arg_dict['pypy_path'], self.arg_dict['name']))
         os.system('cp {}/pypy/sandbox/pypy3-c-sandbox {}/'.format(self.arg_dict['pypy_path'], self.arg_dict['name']))
@@ -47,26 +47,25 @@ class CyWECLI():
 
         if len(self.arg_dict['cc']) > 0:
             os.mkdir('{}'.format(self.arg_dict['cc']))
-            os.system('cp {}/python/bot/samples/command_and_control.py {}'.format(self.arg_dict['cywe_path'],
+            os.system('cp {}/bot/samples/command_and_control.py {}'.format(self.site_packages_path,
                                                                                   self.arg_dict['cc']))
             os.system(
-                'cp {}/python/game/src/cyberwar/braininterface/translations.py {}'.format(self.arg_dict['cywe_path'],
+                'cp {}/game/src/cyberwar/braininterface/translations.py {}'.format(self.site_packages_path,
                                                                                           self.arg_dict['cc']))
 
         print(BColors.OKGREEN + 'Finished!' + BColors.ENDC)
 
     def update_game(self):
         cyberwar_path = self.get_input_path('cyberwar_path', BColors.OKBLUE + 'Your cyberwar path:\n' + BColors.ENDC)
-        cywe_path = self.get_input_path('cywe_path',
-                                        BColors.OKBLUE + 'Your local CyWE path: (Don\'t use "~")\n' + BColors.ENDC)
-        self.copy_files_from_cywe(cyberwar_path, cywe_path)
+
+        self.copy_files_from_cywe(cyberwar_path)
         print(BColors.OKGREEN + 'Updated!' + BColors.ENDC)
 
-    def copy_files_from_cywe(self, cyberwar_path, cywe_path):
-        os.system('cp {}/python/game/samples/simple_player_object_types.ini {}/'.format(cywe_path, cyberwar_path))
-        os.system('cp {}/python/game/src/cyberwar/braininterface/translations.py {}/'.format(cywe_path, cyberwar_path))
-        os.system('cp {}/python/game/pypy-sandbox/src/*.py {}/'.format(cywe_path, cyberwar_path))
-        os.system('cp {}/python/bot/samples/*.py {}/'.format(cywe_path, cyberwar_path))
+    def copy_files_from_cywe(self, cyberwar_path):
+        os.system('cp {}/game/samples/simple_player_object_types.ini {}/'.format(self.site_packages_path, cyberwar_path))
+        os.system('cp {}/game/src/cyberwar/braininterface/translations.py {}/'.format(self.site_packages_path, cyberwar_path))
+        os.system('cp {}/game/pypy-sandbox/src/*.py {}/'.format(self.site_packages_path, cyberwar_path))
+        os.system('cp {}/bot/samples/*.py {}/'.format(self.site_packages_path, cyberwar_path))
         os.system('mv {}/simple_player_object_types.ini {}/object_types.ini'.format(cyberwar_path, cyberwar_path))
 
     def write_config(self):
@@ -75,7 +74,7 @@ class CyWECLI():
         with open(config_path, 'r') as f:
             config = json.load(f)
 
-        config['cywe_path'] = self.cywe_path
+        config['site_packages_path'] = self.site_packages_path
         config['pypy_path'] = os.path.abspath(self.arg_dict['pypy_path'])
         with open(config_path, 'w') as f:
             json.dump(config, f, indent='\t')
