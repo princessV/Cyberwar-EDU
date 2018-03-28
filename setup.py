@@ -98,7 +98,8 @@ setup(
     #    'sample': ['package_data.dat'],
     #},
     package_data = {
-        'cyberwar_cli': ['*.json']
+        'cyberwar_cli': ['cwconfig.json'],
+        'game': ['sample/simple_player_object_types.ini']
     },
     # Although 'package_data' is the preferred approach, in some case you may
     # need to place data files outside of your packages. See:
