@@ -367,7 +367,7 @@ class GameConsole(CLIShell):
         
     def _newGameObjectCommand(self, writer, x, y, objectType, *objectArgs):
         if objectType in self._playerObjectTypes:
-            return self._newPlayerObjectCommand(writer, x, y, objectType, objectArgs[0], objectArgs[1:])
+            return self._newPlayerObjectCommand(writer, x, y, objectType, objectArgs[0], *objectArgs[1:])
         # TODO: Eventually, can have NPC's and other control plane objects.
         # But for now, only have brain controlled stuff.
         writer("Unknown object type {}\n".format(objectType))
