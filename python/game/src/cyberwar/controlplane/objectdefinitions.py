@@ -135,7 +135,7 @@ class Mobile(ControlPlaneObjectAttribute):
         self._heading = heading
         self._squaresPerSecond = squaresPerSecond
         self._waterAble = waterAble
-        
+
     def heading(self): return self._heading
 
     def waterAble(self): return self._waterAble
