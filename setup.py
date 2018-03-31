@@ -66,9 +66,11 @@ setup(
     # What does your project relate to?
     keywords='computer security education networking game',
 
+    package_dir = {'': "python"},
+
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
-    packages=find_packages(exclude=['prototype_core']),
+    packages=find_packages('python', exclude=['prototype_core']),
 
     # Alternatively, if you want to distribute just a my_module.py, uncomment
     # this:
@@ -95,7 +97,10 @@ setup(
     #package_data={
     #    'sample': ['package_data.dat'],
     #},
-
+    package_data = {
+        'cyberwar_cli': ['cwconfig.json'],
+        'game': ['samples/simple_player_object_types.ini']
+    },
     # Although 'package_data' is the preferred approach, in some case you may
     # need to place data files outside of your packages. See:
     # http://docs.python.org/3.4/distutils/setupscript.html#installing-additional-files # noqa
@@ -111,4 +116,9 @@ setup(
     #        'gate=playground.scripts.Gate:main'
     #    ],
     #},
+    entry_points = {
+        'console_scripts': [
+            'cyberwar=cyberwar_cli.cli:main'
+        ]
+    }
 )
