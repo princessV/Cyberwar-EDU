@@ -134,7 +134,8 @@ class Mobile(ControlPlaneObjectAttribute):
             raise Exception("{} is not a valid heading (direction).".format(heading))
         self._heading = heading
         self._squaresPerSecond = squaresPerSecond
-        
+        self._waterAble = waterAble
+
     def heading(self): return self._heading
 
     def waterAble(self): return self._waterAble

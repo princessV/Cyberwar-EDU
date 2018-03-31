@@ -158,6 +158,9 @@ class ControlLayer(LayerBase):
                                                                  ))
             return
 
+        objectLocation = result.Value
+        newLocation = request.Direction.getSquare(objectLocation)
+
         contentsResult = self._lowerLayer.send(ContentsRequest(self.LAYER_NAME,
                                                                newLocation[0],
                                                                newLocation[1]))
@@ -183,9 +186,7 @@ class ControlLayer(LayerBase):
 
                     # my add end
         
-        objectLocation = result.Value
-        newLocation = request.Direction.getSquare(objectLocation)
-        
+
         
         # if we're tangible, check for collisions:
         myTangibleAttr = request.Object.getAttribute(Tangible) 
