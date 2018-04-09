@@ -182,6 +182,20 @@ class RemoteConsole(CLIShell):
             with open(tarName, "wb+") as f:
                 f.write(tarData)
             self.transport.write("Downloaded brain as {}.\n\n".format(tarName))
+        elif isinstance(data, translations.DownloadTargetEvent):
+            tarData = data.brainZip
+            tarName = "object_{}_brain.{}.tar.gz".format(data.targetIdentifier, time.time())
+            with open(tarName, "wb+") as f:
+                f.write(tarData)
+            self.transport.write("Downloaded brain for object {} as {}.\n\n".format(data.targetIdentifier, tarName))
+        elif isinstance(data, translations.ReprogramTargetEvent):
+            self.transport.write("Reprogram of {} {}. {}\n\n".format(data.targetIdentifier, (data.success and "successful" or "unsuccessful"), data.message))
+        elif isinstance(data, translations.RepairCompleteEvent):
+            self.transport.write("Repair complete for object {}. Amount repaired is {} ({}).\n\n".format(data.targetIdentifier,
+                                                                                                     data.amountRepaired,
+                                                                                                     data.message))
+        elif isinstance(data, translations.BuildBotResponse):
+            self.transport.write("Bot built. New ID is {}\n\n".format(data.builtBotIdentifier))
         else:
             self.transport.write("Got {}\n\n".format(data))
         self.transport.refreshDisplay()
@@ -190,7 +204,10 @@ class RemoteConsole(CLIShell):
         objKeys = list(self._protocols.keys())
         objKeys.sort()
         for k in objKeys:
-            writer("Object {} at {}\n".format(k, self._protocols[k].transport.get_extra_info("peername")))
+            objectId = self._protocols[k].identifier
+            if objectId == None:
+                objectId = "<Unknown>"
+            writer("{}. Object {} at {}\n".format(k, objectId, self._protocols[k].transport.get_extra_info("peername")))
         writer("\n")
 
     def _switchObjectCommand(self, writer, arg1):
@@ -200,8 +217,8 @@ class RemoteConsole(CLIShell):
             self.prompt = self.STD_PROMPT
         else:
             self._selected = objId
-            writer("Object {} selected\n".format(arg1))
-            self.prompt = "[{}] >> ".format(arg1)
+            writer("Connection {} selected\n".format(arg1))
+            self.prompt = "[connection {}] >> ".format(arg1)
         writer("\n")
 
     def _downloadBrainCommand(self, writer):
@@ -270,30 +287,114 @@ class RemoteConsole(CLIShell):
             self.prompt = self.STD_PROMPT
             return
 
+        # TODO: have these commands loaded based on type of object
         if cmd == "scan":
-            cmdObj = translations.ScanCommand()
-            sendData = protocol.translator.marshallToNetwork(cmdObj)
-            protocol.transport.write(sendData)
-            writer("Scan Message Sent.\n\n")
+            self._sendCommand_scan(protocol, writer, *args)
         elif cmd == "move":
-            if len(args) != 1:
-                writer("Require a direction argument (N, NE, E, SE, S, SW, W, NW)\n\n")
-                return
-            direction = args[0].lower()
-            if direction in self.DIRECTIONS_SHORT:
-                direction = self.DIRECTIONS_SHORT[direction]
-            if direction not in self.DIRECTIONS_SHORT.values():
-                writer("Unknown direction {}\n\n".format(direction))
-                return
-            cmdObj = translations.MoveCommand(direction)
-            sendData = protocol.translator.marshallToNetwork(cmdObj)
-            protocol.transport.write(sendData)
-            writer("Move Message Sent.\n\n")
+            self._sendCommand_move(protocol, writer, *args)
+        elif cmd == "repair":
+            self._sendCommand_repair(protocol, writer, *args)
         elif cmd == "status":
-            protocol.transport.write(protocol.translator.marshallToNetwork(translations.StatusCommand()))
+            self._sendCommand_status(protocol, writer, *args)
+        elif cmd == "download":
+            self._sendCommand_download(protocol, writer, *args)
+        elif cmd == "reprogram":
+            self._sendCommand_reprogram(protocol, writer, *args)
+        elif cmd == "buildbot":
+            self._sendCommand_buildbot(protocol, writer, *args)
         else:
             writer("Unknown Command {}\n\n".format(cmd))
+    
+    def _sendCommand_buildbot(self, protocol, writer, *args):
+        try:
+            direction = self.DIRECTIONS_SHORT[args[0].lower()]
+            designName, name, address, localBrainPath = args[1:5]
+        except Exception as e:
+            writer("Bad usage. Args must be: direction designName name address brainpath ({})\n\n".format(e))
+            return
+        if not os.path.exists(localBrainPath):
+            writer("No such path {}\n\n".format(localBrainPath))
+            return
+        try:
+            with open(localBrainPath, "rb") as f:
+                cmdObj = translations.BuildBotCommand(direction, designName, name, address, f.read())
+                sendData = protocol.translator.marshallToNetwork(cmdObj)
+                protocol.transport.write(sendData)
+                writer("Build-Bot Message Sent.\n\n")
+        except Exception as e:
+            writer("Could not build bot. {}".format(e))
+            return
+            
+    def _sendCommand_scan(self, protocol, writer, *args):
+        cmdObj = translations.ScanCommand()
+        sendData = protocol.translator.marshallToNetwork(cmdObj)
+        protocol.transport.write(sendData)
+        writer("Scan Message Sent.\n\n")
+        
+    def _sendCommand_move(self, protocol, writer, *args):
+        if len(args) != 1:
+            writer("Require a direction argument (N, NE, E, SE, S, SW, W, NW)\n\n")
+            return
+        direction = args[0].lower()
+        if direction in self.DIRECTIONS_SHORT:
+            direction = self.DIRECTIONS_SHORT[direction]
+        if direction not in self.DIRECTIONS_SHORT.values():
+            writer("Unknown direction {}\n\n".format(direction))
+            return
+        cmdObj = translations.MoveCommand(direction)
+        sendData = protocol.translator.marshallToNetwork(cmdObj)
+        protocol.transport.write(sendData)
+        writer("Move Message Sent.\n\n")
+        
+    def _sendCommand_status(self, protocol, writer, *args):
+        protocol.transport.write(protocol.translator.marshallToNetwork(translations.StatusCommand()))
+        
+    def _sendCommand_download(self, protocol, writer, *args):
+        if len(args) != 1:
+            writer("Requires a target identifier (numeric game object)\n\n")
+            return
+        target = args[0]
+        try:
+            int(target)
+        except:
+            writer("Target identifier must be a numeric identifier\n\n")
+            return
+        sendData = protocol.translator.marshallToNetwork(translations.DownloadTargetCommand(target))
+        protocol.transport.write(sendData)
+        writer("Download target message sent")
+        
+    def _sendCommand_reprogram(self, protocol, writer, *args):
+        try:
+            target, localBrainPath = args
+            int(target)
+        except:
+            writer("reprogram args must be: targetID localBrainPath\n\n")
+            return
+        if not os.path.exists(localBrainPath):
+            writer("No such path {}\n\n".format(localBrainPath))
+            return
+        try:
+            with open(localBrainPath, "rb") as f:
+                sendData = protocol.translator.marshallToNetwork(translations.ReprogramTargetCommand(target, f.read()))
+                protocol.transport.write(sendData)
+                writer("Reprogram target message sent\n\n")
+        except Exception as e:
+            writer("Could not send reprogram command: {}\n\n".format(e))
+            
+    def _sendCommand_repair(self, protocol, writer, *args):
+        try:
+            target,  = args
+            int(target)
+        except:
+            writer("repair args must be: targetID\n\n")
+            return
+        try:
 
+            sendData = protocol.translator.marshallToNetwork(translations.RepairCommand(target))
+            protocol.transport.write(sendData)
+            writer("Repair target message sent\n\n")
+        except Exception as e:
+            writer("Could not send repair command: {}\n\n".format(e))
 
     def stop(self):
         # use list() to make a copy... otherwise closing the protocol

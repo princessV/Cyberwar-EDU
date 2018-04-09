@@ -10,7 +10,7 @@ from ..core.Board import ChangeContentsEvent, DimensionsRequest, ReleaseObjectRe
 from ..core.Layer import Layer as LayerBase
 
 from .objectdefinitions import ControlPlaneObject
-from .objectdefinitions import Observer, Mobile, Tangible
+from .objectdefinitions import Observer, Mobile, Tangible, Technician
 from .RangedLookup import RangedLookup
 from .Directions import Directions
 
@@ -30,6 +30,12 @@ class ObjectMoveRequest(Request):
                          Object=object, 
                          Direction=direction)
         
+class ObjectRepairRequest(Request):
+    def __init__(self, sender, object, repairTarget):
+        super().__init__(sender, ControlLayer.LAYER_NAME,
+                         Object=object,
+                         RepairTarget=repairTarget)
+        
 # TODO: Add a resource changing request
 
 class ObjectScanResult(Response): pass
@@ -45,6 +51,12 @@ class ObjectDamagedEvent(Event):
                          Object=object, TargetObject=targetObject,
                          Damage=damage, TargetDamage=targetDamage,
                          Message=message)
+
+class ObjectRepairCompleteEvent(Event):
+    def __init__(self, receiver, object, repairTarget, amountRepaired, message):
+        super().__init__(ControlLayer.LAYER_NAME, receiver,
+                         Object=object, RepairTarget=repairTarget,
+                         AmountRepaired=amountRepaired, Message=message)
         
 class ObjectObservationEvent(Event):
     """This event is when a specific object
@@ -62,7 +74,9 @@ class ControlLayer(LayerBase):
     def __init__(self, lowerLayer):
         super().__init__(self.LAYER_NAME, lowerLayer)
         self._observerTracking = RangedLookup()
-        self._moveTracking = {}
+        #self._moveTracking = {}
+        self._repairTracking = {}
+        self._repairTargetTracking = {}
     
     def _handleRequest(self, req):
         if isinstance(req, ObjectScanRequest):
@@ -111,14 +125,61 @@ class ControlLayer(LayerBase):
             
             delay = 1.0/speed
             
-            if not req.Object in self._moveTracking:
-                self._moveTracking[req.Object] = []
+            #if not req.Object in self._moveTracking:
+            #    self._moveTracking[req.Object] = []
                 
             asyncio.get_event_loop().call_later(delay, 
                                                 self._completeMove,
                                                 req)
             
             return self._requestAcknowledged(req, "Move scheduled")
+        
+        elif isinstance(req, ObjectRepairRequest):
+            if not isinstance(req.Object, ControlPlaneObject):
+                return self._requestFailed(req, "Technician not part of control plane")
+            
+            if not isinstance(req.RepairTarget, ControlPlaneObject):
+                return self._requestFailed(req, "Repair Target not part of control plane")
+            
+            technicianAttr = req.Object.getAttribute(Technician)
+            if not technicianAttr:
+                return self._requestFailed(req, "Object is not a technician")
+            
+            repairTargetTangibleAttr = req.RepairTarget.getAttribute(Tangible)
+            if not repairTargetTangibleAttr:
+                return self._requestFailed(req, "Repair target is not tangible")
+            
+            result = self._lowerLayer.send(LocateRequest(self.LAYER_NAME, req.Object))
+            if not result:
+                return self._requestFailed(req, "Technician not on game board")
+            
+            technicianX, technicianY = result.Value
+            
+            result = self._lowerLayer.send(LocateRequest(self.LAYER_NAME, req.RepairTarget))
+            if not result:
+                return self._requestFailed(req, "Repair Target not on game board")
+            
+            repairTargetX, repairTargetY = result.Value
+            
+            if abs(technicianX-repairTargetX) > 1 or abs(technicianY-repairTargetY) > 1:
+                return self._requestFailed(req, "Repair Target not close enough")
+            
+            if req.Object in self._repairTracking:
+                return self._requestFailed(req, "Technician already repairing a target")
+            
+            # True indicates validity. If the technician or target move, will be set false
+            self._repairTracking[req.Object] = True
+            
+            if req.RepairTarget not in self._repairTargetTracking:
+                self._repairTargetTracking[req.RepairTarget] = set([])
+            self._repairTargetTracking[req.RepairTarget].add(req.Object)
+            
+            asyncio.get_event_loop().call_later(technicianAttr.repairTime(), 
+                                                self._completeRepair,
+                                                req
+                                                )
+            
+            return self._requestAcknowledged(req, "Repair scheduled")
              
         else:
             return self._requestFailed(req, "Unknown Request")
@@ -137,6 +198,15 @@ class ControlLayer(LayerBase):
             elif event.Operation == ChangeContentsEvent.REMOVE:
                 if self._isObserver(event.Object):
                     self._observerTracking.stopObserving(event.Object, (event.X, event.Y))
+                    
+                # if technician or repair target moved, set repair tracking false
+                if event.Object in self._repairTracking:
+                    self._repairTracking[event.Object] = False
+                if event.Object in self._repairTargetTracking:
+                    for technician in self._repairTargetTracking[event.Object]:
+                        if technician in self._repairTracking:
+                            self._repairTracking[technician] = False
+                    del self._repairTargetTracking[event.Object]
                     
             if self._upperLayer:
                 observers = self._observerTracking.getObserversInRange((event.X, event.Y))
@@ -278,5 +348,32 @@ class ControlLayer(LayerBase):
                                                                  newLocation,
                                                                  "Move successful"
                                                                  ))
+    def _completeRepair(self, request):
+        if self._repairTracking.get(request.Object, False):
+            technicianAttr = request.Object.getAttribute(Technician)
+            repairTangibleAttr = request.RepairTarget.getAttribute(Tangible)
+            origHp = repairTangibleAttr.hitpoints()
+            repairTangibleAttr.repair(technicianAttr.repairAmount())
+            repairAmount = repairTangibleAttr.hitpoints() - origHp
+            event = ObjectRepairCompleteEvent(request.sender(), 
+                                              request.Object, 
+                                              request.RepairTarget, 
+                                              repairAmount, 
+                                              "Repair successful")
+        else:
+            event = ObjectRepairCompleteEvent(request.sender(), 
+                                              request.Object, 
+                                              request.RepairTarget, 
+                                              0, 
+                                              "Repair failed, probably because connection broken")
+        if request.RepairTarget in self._repairTargetTracking:
+            if request.Object in self._repairTargetTracking[request.RepairTarget]:
+                self._repairTargetTracking[request.RepairTarget].remove(request.Object)
+            if len(self._repairTargetTracking[request.RepairTarget]) == 0:
+                del self._repairTargetTracking[request.RepairTarget]
+        if request.Object in self._repairTracking:
+            del self._repairTracking[request.Object]
+        if self._upperLayer:
+            self._upperLayer.receive(event)
                     
 Layer = ControlLayer

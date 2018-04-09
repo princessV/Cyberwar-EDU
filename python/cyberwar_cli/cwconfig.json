@@ -1,11 +1,11 @@
 {
-	"site_packages_path": "",
-	"pypy_path": "",
+	"site_packages_path": "/mnt/c/Users/seth_/Professional/dev/CyberWar-EDU/python",
 	"network": {
 		"switch": {
 			"host": "127.0.0.1",
 			"port": ""
 		},
 		"playground_address": ""
-	}
+	},
+	"pypy_path": "/home/sethjn/WIN_DEV/pypy_35/pypy3-v5.9.0-src"
 }

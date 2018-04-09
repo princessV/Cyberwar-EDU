@@ -170,3 +170,20 @@ class Observer(ControlPlaneObjectAttribute):
     
     def __str__(self):
         return "Observer({})".format(self._range)
+    
+class Technician(ControlPlaneObjectAttribute):
+    def __init__(self, repairAmount, repairTime):
+        super().__init__("technician")
+        self._repairAmount = repairAmount
+        self._repairTime = repairTime
+        
+    def repairAmount(self): return self._repairAmount
+    
+    def repairTime(self): return self._repairTime
+    
+    def rawData(self):
+        return [("repair_amount",self._repairAmount), 
+                ("repair_time", self._repairTime)]
+    
+    def __str__(self):
+        return "Technician({}hp/{}second(s))".format(self._repairAmount, self._repairTime)

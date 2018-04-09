@@ -19,7 +19,6 @@ def kill(pid):
     
 # TODO:
 # Broken things. The launching thing is a hack. Unify. Simplify.
-
 class BrainEnabled(ControlPlaneObjectAttribute):
     REQUIRED = [Tangible]
     
