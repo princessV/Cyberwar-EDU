@@ -5,7 +5,7 @@ Created on Feb 13, 2018
 '''
 
 from ..core.messages import Request, Response, Event
-from ..core.Board import ContentsRequest, LocateRequest, PutRequest, RemoveRequest
+from ..core.Board import ContentsRequest, LocateRequest, PutRequest, RemoveRequest, ObjectChurnEvent
 from ..core.Board import ChangeContentsEvent, DimensionsRequest, ReleaseObjectRequest
 from ..core.Layer import Layer as LayerBase
 
@@ -77,6 +77,7 @@ class ControlLayer(LayerBase):
         #self._moveTracking = {}
         self._repairTracking = {}
         self._repairTargetTracking = {}
+        ControlPlaneObject.OBJECT_LOOKUP = {}
     
     def _handleRequest(self, req):
         if isinstance(req, ObjectScanRequest):
@@ -215,6 +216,15 @@ class ControlLayer(LayerBase):
                     self._upperLayer.receive(ObjectObservationEvent(Event.BROADCAST,
                                                                     observer,
                                                                     event))
+        if isinstance(event, ObjectChurnEvent):
+            if event.Operation == ObjectChurnEvent.RELEASED and isinstance(event.Object, ControlPlaneObject):
+                if event.Object.numericIdentifier() in ControlPlaneObject.OBJECT_LOOKUP:
+                    del ControlPlaneObject.OBJECT_LOOKUP[event.Object.numericIdentifier()]
+            elif event.Operation == ObjectChurnEvent.ADDED and isinstance(event.Object, ControlPlaneObject):
+                if event.Object.numericIdentifier() in ControlPlaneObject.OBJECT_LOOKUP:
+                    raise Exception("Duplicate object identifier.")
+                ControlPlaneObject.OBJECT_LOOKUP[event.Object.numericIdentifier()] = event.Object
+                    
                 
     def _completeMove(self, request):
         # start by getting the location of the object.

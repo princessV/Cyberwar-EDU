@@ -9,6 +9,10 @@ from .Directions import Directions
 class ControlPlaneObject:
     OBJECT_ID = 0 # LOADERS MUST RELOAD THIS VALUE!!!
     
+    # TODO: This is a hack. Really, we should never have a derived
+    # Database like this. We need to be able to query the game
+    # database. We need a mechanism wherein layers such as this
+    # can create "view" tables within the game database.
     OBJECT_LOOKUP = {} # LOADERS MUST ALSO RELOAD THIS VALUE !!!
     
     def __init__(self, *attributes):
