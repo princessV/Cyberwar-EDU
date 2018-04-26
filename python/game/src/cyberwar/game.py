@@ -407,8 +407,9 @@ class GameConsole(CLIShell):
             writer("{} could not be created. {}\n\n".format(objectType, e))
             
     def _listGameObjectsCommand(self, writer):
-        for objId in ControlPlaneObject.OBJECT_LOOKUP:
-            cpObject = ControlPlaneObject.OBJECT_LOOKUP[objId]
+        for cpObject in self._objectStore:
+            if not isinstance(cpObject, ControlPlaneObject): continue
+            objId = cpObject.gameId()
             locateResponse = self._game.send(LocateRequest("game", cpObject))
             if not locateResponse:
                 continue
@@ -473,11 +474,10 @@ class GameConsole(CLIShell):
         
     def _moveGameObjectCommand(self, writer, objectId, x, y):
         objectId = int(objectId)
-        if objectId not in ControlPlaneObject.OBJECT_LOOKUP:
+        gameObject = self._objectStore.getIngameObject(objectId)
+        if not gameObject:
             writer("Unknown object {}\n\n".format(objectId))
             return
-        
-        gameObject = ControlPlaneObject.OBJECT_LOOKUP[objectId]
         x,y = int(x), int(y)
         
         removeResponse = self._game.send(RemoveRequest("game", gameObject))
@@ -494,11 +494,10 @@ class GameConsole(CLIShell):
         
     def _resetBrainObjectCommand(self, writer, objectId, brainType, *brainArgs):
         objectId = int(objectId)
-        if objectId not in ControlPlaneObject.OBJECT_LOOKUP:
+        gameObject = self._objectStore.getIngameObject(objectId)
+        if not gameObject:
             writer("Unknown object {}\n\n".format(objectId))
             return
-        
-        gameObject = ControlPlaneObject.OBJECT_LOOKUP[objectId]
         
         brainAttr = gameObject.getAttribute(BrainEnabled)
         if not brainAttr:
@@ -525,11 +524,10 @@ class GameConsole(CLIShell):
         
     def _restartBrainObjectCommand(self, writer, objectId, *restartArgs):
         objectId = int(objectId)
-        if objectId not in ControlPlaneObject.OBJECT_LOOKUP:
+        gameObject = self._objectStore.getIngameObject(objId)
+        if not gameObject:
             writer("Unknown object {}\n\n".format(objectId))
             return
-        
-        gameObject = ControlPlaneObject.OBJECT_LOOKUP[objectId]
         
         brainAttr = gameObject.getAttribute(BrainEnabled)
         if not brainAttr:
@@ -542,11 +540,10 @@ class GameConsole(CLIShell):
         
     def _destroyGameObjectCommand(self, writer, objectId):
         objectId = int(objectId)
-        if objectId not in ControlPlaneObject.OBJECT_LOOKUP:
+        gameObject = self._objectStore.getIngameObject(objectId)
+        if not gameObject:
             writer("Unknown object {}\n\n".format(objectId))
             return
-        
-        gameObject = ControlPlaneObject.OBJECT_LOOKUP[objectId]
 
         releaseResult = self._game.send(ReleaseObjectRequest("game", gameObject))
         if not releaseResult:

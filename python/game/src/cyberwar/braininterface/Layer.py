@@ -3,10 +3,10 @@ Created on Feb 14, 2018
 
 @author: seth_
 '''
-from ..core.Board import InitializeObjectRequest, ObjectChurnEvent, PutRequest
+from ..core.Board import InitializeObjectRequest, ObjectChurnEvent, PutRequest, LookupObject
 from ..core.Layer import Layer as LayerBase
 
-from ..controlplane.objectdefinitions import ControlPlaneObject
+from ..controlplane.objectdefinitions import ControlPlaneObject, Tangible
 from ..controlplane.Layer import ObjectObservationEvent, ObjectMoveCompleteEvent
 from ..controlplane.Layer import ObjectDamagedEvent, LocateRequest, ObjectRepairCompleteEvent
 
@@ -23,9 +23,8 @@ class BrainInterfaceLayer(LayerBase):
     SERVER_PORT = 10013
     
     # TODO: This should be a parameter to an attribute.
-    # For now, hard coded 2 minutes to reprogram something
-    # physically
-    BRAIN_IO_SPEED=120
+    # For now, hard coded to 10 seconds per hit point
+    BRAIN_IO_SPEED=10
     
     def __init__(self, lowerLayer):
         super().__init__(self.LAYER_NAME, lowerLayer)
@@ -119,7 +118,7 @@ class BrainInterfaceLayer(LayerBase):
             # TODO: fixed number of bots right now
             liveBuiltBotCount = 0
             for botId in botBuilderAttr.builtBots():
-                botObj = ControlPlaneObject.OBJECT_LOOKUP.get(botId, None)
+                botObj = LookupObject(self._lowerLayer, botId)
                 if botObj:
                     if self._lowerLayer.send(LocateRequest(self.LAYER_NAME, botObj)):
                         liveBuiltBotCount += 1
@@ -146,7 +145,8 @@ class BrainInterfaceLayer(LayerBase):
             
             return self._requestAcknowledged(req, bot.numericIdentifier(), ackType=CreateBotResponse)
         elif isinstance(req, GetBrainObjectByIdentifier):
-            obj = ControlPlaneObject.OBJECT_LOOKUP.get(req.Identifier, None)
+            obj = LookupObject(self._lowerLayer, req.Identifier)
+            # TODO, make sure it's a brain
             if not obj:
                 return self._requestFailed(req, "Unknown object")
             else:
@@ -161,6 +161,11 @@ class BrainInterfaceLayer(LayerBase):
             if req.Technician in self._brainIOTracking:
                 return self._requestFailed(req, "Technician already performing brain IO on a target")
             
+            tangible = req.Target.getAttribute(Tangible)
+            if not tangible:
+                return self._requestFailed(req, "Target is not tangible")
+            hp = tangible.hitpoints()
+            
             # True indicates validity. If the technician or target move, will be set false
             self._brainIOTracking[req.Technician] = True
             
@@ -168,7 +173,7 @@ class BrainInterfaceLayer(LayerBase):
                 self._brainIOTargetTracking[req.Target] = set([])
             self._brainIOTargetTracking[req.Target].add(req.Technician)
             
-            asyncio.get_event_loop().call_later(self.BRAIN_IO_SPEED, 
+            asyncio.get_event_loop().call_later(self.BRAIN_IO_SPEED*hp, 
                                                 self._brainIOComplete,
                                                 req
                                                 )

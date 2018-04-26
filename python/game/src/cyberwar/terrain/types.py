@@ -4,9 +4,10 @@ Created on Feb 12, 2018
 @author: seth_
 '''
 
+from ..core.ObjectStore import GameObject
 from .Loader import Loader
 
-class TerrainType:
+class TerrainType(GameObject):
     @classmethod
     def ObjType(self):
         return Loader.OBJECT_TYPE

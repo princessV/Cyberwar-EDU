@@ -4,22 +4,13 @@ Created on Feb 13, 2018
 @author: seth_
 '''
 
+from ..core.ObjectStore import GameObject
 from .Directions import Directions
 
-class ControlPlaneObject:
-    OBJECT_ID = 0 # LOADERS MUST RELOAD THIS VALUE!!!
-    
-    # TODO: This is a hack. Really, we should never have a derived
-    # Database like this. We need to be able to query the game
-    # database. We need a mechanism wherein layers such as this
-    # can create "view" tables within the game database.
-    OBJECT_LOOKUP = {} # LOADERS MUST ALSO RELOAD THIS VALUE !!!
-    
+class ControlPlaneObject(GameObject):    
     def __init__(self, *attributes):
         self._attributes = {}
-        ControlPlaneObject.OBJECT_ID += 1
-        self._numericId = ControlPlaneObject.OBJECT_ID
-        self._identifier = "game_object_{}".format(self._numericId)
+        #self._identifier = "game_object_{}".format(self._numericId)
         for attribute in attributes:
             attributeClass = attribute.__class__
             
@@ -41,10 +32,14 @@ class ControlPlaneObject:
             attribute.initializeObject(self)
     
     def numericIdentifier(self):
-        return self._numericId
+        return self.gameId()
     
     def identifier(self):
-        return self._identifier
+        numeric = self.gameId()
+        base = self.__class__.__name__
+        if numeric is None:
+            return "Unknown {}".format(base)
+        return "{}-{}".format(base, numeric)
     
     def getAttribute(self, attributeClass):
         for aClass in attributeClass.__mro__:

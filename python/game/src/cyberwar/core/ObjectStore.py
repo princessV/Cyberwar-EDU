@@ -4,6 +4,13 @@ Created on Feb 12, 2018
 @author: seth_
 '''
 
+class GameObject:
+    def gameId(self):
+        try:
+            return self._core_gameobj_id
+        except:
+            return None
+
 class ObjectStore:
     
     def __init__(self, db):
@@ -32,6 +39,7 @@ class ObjectStore:
                 
                 self._inMemoryIdMap[objId] = obj
                 self._inMemoryObjects[obj] = (objType, objId)
+                obj._core_gameobj_id = objId
                 
                 self._nextId = max(self._nextId, objId)
         self._loaded = True
@@ -63,8 +71,12 @@ class ObjectStore:
         
         self._inMemoryIdMap[objId] = obj
         self._inMemoryObjects[obj] = (objType, objId)
+        obj._core_gameobj_id = objId
         
         return obj
+    
+    def getIngameObject(self, objId):
+        return self._inMemoryIdMap.get(objId, None)
     
     def save(self, object, dirtyOnly=False):
         if not self._loaded:
@@ -106,8 +118,12 @@ class ObjectStore:
         if objType not in self._loaders:
             raise Exception("Unknown type {} (no loader)".format(objType))
         
+        if object in self._inMemoryObjects:
+            raise Exception("Object already in database")
+        
         self._nextId += 1
         objId = self._nextId
+        object._core_gameobj_id = objId
         self._inMemoryIdMap[objId] = object
         self._inMemoryObjects[object] = (objType, objId)
         
@@ -132,5 +148,7 @@ class ObjectStore:
                          (objId,))
         del self._inMemoryIdMap[objId]
         del self._inMemoryObjects[obj]
+        obj._core_gameobj_id = None
     
-    
+    def __iter__(self):
+        return self._inMemoryObjects.__iter__()

@@ -26,7 +26,7 @@ from ..terrain.types import BaseType as BaseTerrainType
 
 from ..core.messages import Failure, Response, GameMessage
 
-from ..core.Board import ChangeContentsEvent
+from ..core.Board import ChangeContentsEvent, LookupObject
 
 GameMessageToNetworkMessage = {}
 
@@ -71,9 +71,9 @@ class GenericTranslator:
 
 class BrainInterfaceReprogramTargetCommand(ReprogramTargetCommand):
     def handle(self, game, object):
-        if self.targetIdentifier not in ControlPlaneObject.OBJECT_LOOKUP:
-            return Failure("No such target")
-        target = ControlPlaneObject.OBJECT_LOOKUP[self.targetIdentifier]
+        target = LookupObject(game, self.targetIdentifier)
+        if not target:
+            return FailureResponse("No such target {}".format(self.targetIdentifier))
         return game.send(ReprogramBrainRequest(game.name(),
                                                object,
                                                target,
@@ -81,9 +81,9 @@ class BrainInterfaceReprogramTargetCommand(ReprogramTargetCommand):
         
 class BrainInterfaceDownloadTargetCommand(DownloadTargetCommand):
     def handle(self, game, object):
-        if self.targetIdentifier not in ControlPlaneObject.OBJECT_LOOKUP:
-            return Failure("No such target")
-        target = ControlPlaneObject.OBJECT_LOOKUP[self.targetIdentifier]
+        target = LookupObject(game, self.targetIdentifier)
+        if not target:
+            return FailureResponse("No such target {}".format(self.targetIdentifier))
         return game.send(DownloadBrainRequest(game.name(),
                                                object,
                                                target))
@@ -178,9 +178,9 @@ GameMessageToNetworkMessage[ObjectDamagedEvent] = ObjectDamageTranslator
 
 class ControlPlaneRepairCommand(RepairCommand):
     def handle(self, game, object):
-        if self.targetIdentifier not in ControlPlaneObject.OBJECT_LOOKUP:
-            return Failure("No such target")
-        target = ControlPlaneObject.OBJECT_LOOKUP[self.targetIdentifier]
+        target = LookupObject(game, self.targetIdentifier)
+        if not target:
+            return FailureResponse("No such target {}".format(self.targetIdentifier))
         return game.send(ObjectRepairRequest(game.name(), object, target))
     
 class RepairCompleteTranslator:

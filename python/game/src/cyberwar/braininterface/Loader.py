@@ -126,11 +126,9 @@ class BrainControlledObjectLoader(PickleLoader):
     def load(self, row):
         objId, objData = row
         object = pickle.loads(objData)
-        ControlPlaneObject.OBJECT_ID = max(object.numericIdentifier(), ControlPlaneObject.OBJECT_ID)
         brainAttr = object.getAttribute(BrainEnabled)
         
         self.BRAINID_TO_OBJECT[brainAttr.brainIdentifier()] = object
-        ControlPlaneObject.OBJECT_LOOKUP[object.numericIdentifier()] = object
         
         if brainAttr._pid:
             kill(brainAttr._pid)
