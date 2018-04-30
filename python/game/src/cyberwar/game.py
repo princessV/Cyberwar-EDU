@@ -16,13 +16,15 @@ from .terrain.types import Land, Water
 from .terrain.initialization_algorithms import SimpleTerrainInitialization
 
 from .controlplane.Layer import Layer as ControlPlaneLayer
-from .controlplane.objectdefinitions import Mobile, Observer, Tangible, ControlPlaneObject
+from .controlplane.objectdefinitions import Mobile, Observer, Tangible, ControlPlaneObject, Technician
 from .controlplane.Directions import Directions
 
 from .braininterface.Loader import Loader as BrainObjectLoader
 from .braininterface.Loader import BrainEnabled
 from .braininterface.Layer import Layer as BrainControlLayer
 from .braininterface.Layer import CreateBrainControlledObjectRequest, GetBrainObjectByIdentifier
+from .braininterface.BrainMaker import BrainMaker
+from .braininterface.BotBuilder import BotBuilder
 
 import sqlite3, asyncio, os, configparser, time, shutil
 
@@ -35,7 +37,10 @@ AttributeConstructor = {
     "mobile"  : lambda section: Mobile(heading=Directions.N, 
                                        squaresPerSecond = section.getfloat("mobile.squares_per_second"),
                                        waterAble=section.getint("mobile.water_able")),
-    "tangible": lambda section: Tangible(hp = section.getint("tangible.hp"))
+    "tangible": lambda section: Tangible(hp = section.getint("tangible.hp")),
+    "technician":lambda section: Technician(repairAmount = section.getint("technician.repair_amount"),
+                                            repairTime   = section.getint("technician.repair_time")),
+    "botbuilder":lambda section: BotBuilder()
     }
 
 BRAIN_REQUIRED_FILES = ["translations.py"]
@@ -183,6 +188,9 @@ class GameConsole(CLIShell):
         self._templatesPath = os.path.join(self._gamepath, "templates")
         self._brainTemplatesPath = os.path.join(self._templatesPath, "brains")
         self._brainsPath = os.path.join(self._gamepath, "brains")
+        
+        switchHost, switchPort = self._deviceManager.getDevice("gameswitch").tcpLocation()
+        self._brainMaker = BrainMaker(self._brainsPath, switchHost, switchPort)
         self._dbFile = os.path.join(self._gamepath, "board.db")
         loadGame = os.path.exists(self._dbFile)
         self._db = sqlite3.connect(self._dbFile, isolation_level=None)
@@ -289,6 +297,15 @@ class GameConsole(CLIShell):
             except Exception as e:
                 raise Exception("Misconfigured type. {}".format(e))
         
+        for attr in attributes:
+            # special handling section
+            
+            # handle botbuilder... requires a brain maker and design types
+            if isinstance(attr, BotBuilder):
+                attr.configureBrainMaker(self._brainMaker)
+                for objectType in self._playerObjectTypes:
+                    if objectType == "city": continue
+                    attr.loadDesign(objectType, self._getObjectTypeAttributes(objectType))
         return attributes
     
     def _getBrain(self, brainType, **kargs):
@@ -346,6 +363,12 @@ class GameConsole(CLIShell):
         print("brain path", brainPath)
         self._initializeBrain(brainPath, brainType, **kargs)
         
+        # TODO: eventually, figure out how to use initializeBrain. But requires a zip file...
+        #brainPath = self._brainMaker.initializeBrain("console_"+objectType, 
+        #                                             kargs["address"], 
+        #                                             brainType, 
+        #                                             **kargs)
+        
         print("get attributes")
         attributes = self._getObjectTypeAttributes(objectType)
         print("got", attributes)
@@ -384,8 +407,9 @@ class GameConsole(CLIShell):
             writer("{} could not be created. {}\n\n".format(objectType, e))
             
     def _listGameObjectsCommand(self, writer):
-        for objId in ControlPlaneObject.OBJECT_LOOKUP:
-            cpObject = ControlPlaneObject.OBJECT_LOOKUP[objId]
+        for cpObject in self._objectStore:
+            if not isinstance(cpObject, ControlPlaneObject): continue
+            objId = cpObject.gameId()
             locateResponse = self._game.send(LocateRequest("game", cpObject))
             if not locateResponse:
                 continue
@@ -450,11 +474,10 @@ class GameConsole(CLIShell):
         
     def _moveGameObjectCommand(self, writer, objectId, x, y):
         objectId = int(objectId)
-        if objectId not in ControlPlaneObject.OBJECT_LOOKUP:
+        gameObject = self._objectStore.getIngameObject(objectId)
+        if not gameObject:
             writer("Unknown object {}\n\n".format(objectId))
             return
-        
-        gameObject = ControlPlaneObject.OBJECT_LOOKUP[objectId]
         x,y = int(x), int(y)
         
         removeResponse = self._game.send(RemoveRequest("game", gameObject))
@@ -471,11 +494,10 @@ class GameConsole(CLIShell):
         
     def _resetBrainObjectCommand(self, writer, objectId, brainType, *brainArgs):
         objectId = int(objectId)
-        if objectId not in ControlPlaneObject.OBJECT_LOOKUP:
+        gameObject = self._objectStore.getIngameObject(objectId)
+        if not gameObject:
             writer("Unknown object {}\n\n".format(objectId))
             return
-        
-        gameObject = ControlPlaneObject.OBJECT_LOOKUP[objectId]
         
         brainAttr = gameObject.getAttribute(BrainEnabled)
         if not brainAttr:
@@ -502,11 +524,10 @@ class GameConsole(CLIShell):
         
     def _restartBrainObjectCommand(self, writer, objectId, *restartArgs):
         objectId = int(objectId)
-        if objectId not in ControlPlaneObject.OBJECT_LOOKUP:
+        gameObject = self._objectStore.getIngameObject(objId)
+        if not gameObject:
             writer("Unknown object {}\n\n".format(objectId))
             return
-        
-        gameObject = ControlPlaneObject.OBJECT_LOOKUP[objectId]
         
         brainAttr = gameObject.getAttribute(BrainEnabled)
         if not brainAttr:
@@ -519,11 +540,10 @@ class GameConsole(CLIShell):
         
     def _destroyGameObjectCommand(self, writer, objectId):
         objectId = int(objectId)
-        if objectId not in ControlPlaneObject.OBJECT_LOOKUP:
+        gameObject = self._objectStore.getIngameObject(objectId)
+        if not gameObject:
             writer("Unknown object {}\n\n".format(objectId))
             return
-        
-        gameObject = ControlPlaneObject.OBJECT_LOOKUP[objectId]
 
         releaseResult = self._game.send(ReleaseObjectRequest("game", gameObject))
         if not releaseResult:

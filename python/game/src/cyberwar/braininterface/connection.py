@@ -41,6 +41,9 @@ class BrainConnectionProtocol(asyncio.Protocol):
         self.object = self.server.getObjectByIdentifier(identifier)
         if not self.object: return
         
+        if self.object in self.OBJECT_LOOKUP:
+            self.transport.close()
+            return
         self.OBJECT_LOOKUP[self.object] = self
         
         attributeStrings = []

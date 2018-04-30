@@ -218,6 +218,98 @@ class DownloadBrainResponse:
     def __init__(self, brainZip):
         self.data = brainZip
         
+class ReprogramTargetCommand:
+    CMD = b"__reprogram_target__"
+    
+    @classmethod
+    def Marshall(cls, cmd):
+        body = cmd.data
+        bodyLen = str(len(body)).encode()
+        message = b"CMD __reprogram_target__ braininterface/1.0\n"
+        message += b"Target_identifier: " + str(cmd.targetIdentifier).encode() + b"\n"
+        message += b"Content_length: " + bodyLen + b"\n"
+        message += b"\n"
+        message += body
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        targetIdentifier = int(headers[b"Target_identifier"])
+        return cls(targetIdentifier, body)
+    
+    def __init__(self, targetIdentifier, brainZip):
+        self.data = brainZip
+        self.targetIdentifier = targetIdentifier
+        
+class ReprogramTargetEvent:
+    EVENT = b"__reprogram_target_event__"
+    
+    @classmethod
+    def Marshall(cls, cmd):
+        message = b"EVENT __reprogram_target_event__ braininterface/1.0\n"
+        message += b"Target_identifier: " + str(cmd.targetIdentifier).encode() + b"\n"
+        message += b"Success: " + (cmd.success and b"True" or b"False") + b"\n"
+        message += b"Message: " + cmd.message.encode() + b"\n"
+        message += b"Content_length: 0\n"
+        message += b"\n"
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        return cls(int(headers[b"Target_identifier"]),
+                   (headers[b"Success"] == b"True"),
+                   headers[b"Message"].decode())
+    
+    def __init__(self, targetIdentifier, success, message):
+        self.targetIdentifier = targetIdentifier
+        self.success = success
+        self.message = message
+        
+class DownloadTargetCommand:
+    CMD = b"__download_target__"
+    
+    @classmethod
+    def Marshall(cls, cmd):
+        message = b"CMD __download_target__ braininterface/1.0\n"
+        message += b"Target_identifier: " + str(cmd.targetIdentifier).encode() + b"\n"
+        message += b"Content_length: 0\n"
+        message += b"\n"
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        targetIdentifier = int(headers[b"Target_identifier"])
+        return cls(targetIdentifier)
+    
+    def __init__(self, targetIdentifier):
+        self.targetIdentifier = targetIdentifier
+        
+class DownloadTargetEvent:
+    EVENT = b"__download_target_event__"
+    
+    @classmethod
+    def Marshall(cls, cmd):
+        body = cmd.brainZip
+        bodyLen = str(len(body)).encode()
+        message = b"EVENT __download_target_event__ braininterface/1.0\n"
+        message += b"Message: " + cmd.message.encode() + b"\n"
+        message += b"Target_identifier: " + str(cmd.targetIdentifier).encode() + b"\n"
+        message += b"Content_length: " + bodyLen + b"\n"
+        message += b"\n"
+        message += body
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        return cls(int(headers[b"Target_identifier"]),
+            headers[b"Message"].decode(),
+                   body)
+    
+    def __init__(self, targetIdentifier, message, brainZip):
+        self.targetIdentifier = targetIdentifier
+        self.brainZip = brainZip
+        self.message = message
+        
 class ReprogramCommand:
     CMD = b"__reprogram__"
     
@@ -282,10 +374,11 @@ class ReprogramResponse:
         
 class BrainConnectInterface:
     ATTRIBUTE_NAME = "__default__"
-    COMMANDS = [BrainConnectCommand, ReprogramCommand, DownloadBrainCommand]
+    COMMANDS = [BrainConnectCommand, ReprogramCommand, DownloadBrainCommand,
+                ReprogramTargetCommand, DownloadTargetCommand]
     RESPONSES = [BrainConnectResponse, FailureResponse, ResultResponse, 
                  ReprogramResponse, DownloadBrainResponse]
-    EVENTS = []
+    EVENTS = [ReprogramTargetEvent, DownloadTargetEvent]
 NetworkTranslator.RegisterAttributeInterface(BrainConnectInterface)
 
 class MoveCommand:
@@ -316,6 +409,7 @@ class MoveCompleteEvent:
         body = pickle.dumps(event.location)
         bodyLength = "{}".format(len(body))
         message = b"EVENT move_complete braininterface/1.0\n"
+        #TODO: If event.message has a\n, this will break everything!!!!
         message += b"Message: "+event.message.encode()+b"\n"
         message += b"Content_length: " + bodyLength.encode() + b"\n"
         message += b"\n"
@@ -475,3 +569,108 @@ class TangibleAttributeInterface:
     RESPONSES= [StatusResponse]
     EVENTS   = [DamageEvent]
 NetworkTranslator.RegisterAttributeInterface(TangibleAttributeInterface)
+
+class RepairCommand:
+    CMD = b"repair"
+    
+    @classmethod
+    def Marshall(cls, cmd):
+        message = b"CMD "+cls.CMD+b" braininterface/1.0\n"
+        message += b"Target_identifier: " + str(cmd.targetIdentifier).encode() + b"\n"
+        message += b"Content_length: 0\n"
+        message += b"\n"
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        return cls(int(headers[b"Target_identifier"]))
+    
+    def __init__(self, targetIdentifier):
+        self.targetIdentifier = targetIdentifier
+        
+class RepairCompleteEvent:
+    EVENT = b"repair_complete_event"
+    
+    @classmethod
+    def Marshall(cls, event):
+        message = b"EVENT "+cls.EVENT+b" braininterface/1.0\n"
+        message += b"Target_identifier: " + str(event.targetIdentifier).encode() + b"\n"
+        message += b"Amount_repaired: " + str(event.amountRepaired).encode() + b"\n"
+        message += b"Message: " + event.message.encode() + b"\n"
+        message += b"Content_length: 0\n"
+        message += b"\n"
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        return cls(int(headers[b"Target_identifier"]), int(headers[b"Amount_repaired"]),
+                   headers[b"Message"].decode())
+    
+    def __init__(self, targetIdentifier, amountRepaired, message):
+        self.targetIdentifier = targetIdentifier
+        self.amountRepaired = amountRepaired
+        self.message = message
+        
+class TechnicianAttributeInterface:
+    ATTRIBUTE_NAME='technician'
+    COMMANDS = [RepairCommand]
+    RESPONSES= []
+    EVENTS   = [RepairCompleteEvent]
+NetworkTranslator.RegisterAttributeInterface(TechnicianAttributeInterface)
+        
+class BuildBotCommand:
+    CMD = b"build_bot"
+    
+    @classmethod
+    def Marshall(cls, cmd):
+        body = cmd.brainZip
+        bodyLength = str(len(body))
+        message = b"CMD "+cls.CMD+b" braininterface/1.0\n"
+        message += b"Direction: " + cmd.direction.encode() + b"\n"
+        message += b"Design_name: " + cmd.designName.encode() + b"\n"
+        message += b"Name: " + cmd.name.encode() + b"\n"
+        message += b"Address: " + cmd.address.encode() + b"\n"
+        message += b"Content_length: " + bodyLength.encode() + b"\n"
+        message += b"\n"
+        message += body
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        return cls(headers[b"Direction"].decode(),
+                   headers[b"Design_name"].decode(),
+                   headers[b"Name"].decode(),
+                   headers[b"Address"].decode(),
+                   body)
+    
+    def __init__(self, direction, designName, name, address, brainZip):
+        self.direction = direction
+        self.designName = designName
+        self.name = name
+        self.address = address
+        self.brainZip = brainZip
+        
+class BuildBotResponse:
+    RESPONSE = b"build_bot_response"
+    
+    @classmethod
+    def Marshall(cls, response):
+        message = b"RESPONSE "+cls.RESPONSE+b" braininterface/1.0\n"
+        message += b"Built_bot_identifier: " + str(response.builtBotIdentifier).encode() + b"\n"
+        message += b"Content_length: 0\n"
+        message += b"\n"
+        return message
+    
+    @classmethod
+    def Unmarshall(cls, headers, body):
+        return cls(int(headers[b"Built_bot_identifier"]))
+    
+    def __init__(self, builtBotIdentifier):
+        self.builtBotIdentifier = builtBotIdentifier
+        
+class BotbuilderAttributeInterface:
+    ATTRIBUTE_NAME='botbuilder'
+    COMMANDS = [BuildBotCommand]
+    RESPONSES= [BuildBotResponse]
+    EVENTS   = []
+NetworkTranslator.RegisterAttributeInterface(BotbuilderAttributeInterface)

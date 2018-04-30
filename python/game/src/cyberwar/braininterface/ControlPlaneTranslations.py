@@ -1,23 +1,32 @@
 
+from .translations import DownloadTargetCommand, DownloadTargetEvent
+from .translations import ReprogramTargetCommand, ReprogramTargetEvent
 from .translations import MoveCommand, ScanCommand, BrainConnectCommand
 from .translations import MobileAttributeInterface, ObserverAttributeInterface
 from .translations import BrainConnectInterface, BrainConnectResponse
 from .translations import FailureResponse, ResultResponse
 from .translations import MoveCompleteEvent, ScanResponse, ObjectMoveEvent
 from .translations import TangibleAttributeInterface, DamageEvent, StatusCommand, StatusResponse
+from .translations import TechnicianAttributeInterface, RepairCommand, RepairCompleteEvent
+from .translations import BotbuilderAttributeInterface, BuildBotCommand, BuildBotResponse
 from .translations import NetworkTranslator
+
+from .messages import DownloadBrainRequest, DownloadBrainEvent
+from .messages import ReprogramBrainEvent, ReprogramBrainRequest
+from .messages import CreateBotRequest, CreateBotResponse
 
 from ..controlplane.objectdefinitions import Mobile, Observer, Tangible, NamedObject
 from ..controlplane.Directions import Directions
 from ..controlplane.objectdefinitions import ControlPlaneObject
 from ..controlplane.Layer import ObjectMoveRequest, ObjectScanRequest
 from ..controlplane.Layer import ObjectMoveCompleteEvent, ObjectScanResult, ObjectDamagedEvent
+from ..controlplane.Layer import ObjectRepairRequest, ObjectRepairCompleteEvent
 
 from ..terrain.types import BaseType as BaseTerrainType
 
 from ..core.messages import Failure, Response, GameMessage
 
-from ..core.Board import ChangeContentsEvent
+from ..core.Board import ChangeContentsEvent, LookupObject
 
 GameMessageToNetworkMessage = {}
 
@@ -60,9 +69,41 @@ class GenericTranslator:
         else:
             return FailureResponse(message.Value)
 
-BrainConnectInterface.COMMANDS = [ControlPlaneBrainConnectCommand]
+class BrainInterfaceReprogramTargetCommand(ReprogramTargetCommand):
+    def handle(self, game, object):
+        target = LookupObject(game, self.targetIdentifier)
+        if not target:
+            return FailureResponse("No such target {}".format(self.targetIdentifier))
+        return game.send(ReprogramBrainRequest(game.name(),
+                                               object,
+                                               target,
+                                               self.data))
+        
+class BrainInterfaceDownloadTargetCommand(DownloadTargetCommand):
+    def handle(self, game, object):
+        target = LookupObject(game, self.targetIdentifier)
+        if not target:
+            return FailureResponse("No such target {}".format(self.targetIdentifier))
+        return game.send(DownloadBrainRequest(game.name(),
+                                               object,
+                                               target))
+
+class BrainIOTranslator:
+    @classmethod
+    def Translate(cls, event):
+        if isinstance(event, DownloadBrainEvent):
+            return DownloadTargetEvent(event.Target.numericIdentifier(), event.Message, event.Brain)
+        elif isinstance(event, ReprogramBrainEvent):
+            return ReprogramTargetEvent(event.Target.numericIdentifier(), event.Successful, event.Message)
+        else:
+            return FailureResponse("Unknown brain IO command")
+
+BrainConnectInterface.COMMANDS = [ControlPlaneBrainConnectCommand, BrainInterfaceDownloadTargetCommand,
+                                  BrainInterfaceReprogramTargetCommand]
 GameMessageToNetworkMessage[Failure] = GenericTranslator
 GameMessageToNetworkMessage[Response] = GenericTranslator
+GameMessageToNetworkMessage[DownloadBrainEvent] = BrainIOTranslator
+GameMessageToNetworkMessage[ReprogramBrainEvent] = BrainIOTranslator
 
 class ControlPlaneMoveCommand(MoveCommand):
     def handle(self, game, object):
@@ -134,3 +175,35 @@ class ObjectDamageTranslator:
                                   message.Message)
 TangibleAttributeInterface.COMMANDS=[ControlPlaneStatusCommand]
 GameMessageToNetworkMessage[ObjectDamagedEvent] = ObjectDamageTranslator
+
+class ControlPlaneRepairCommand(RepairCommand):
+    def handle(self, game, object):
+        target = LookupObject(game, self.targetIdentifier)
+        if not target:
+            return FailureResponse("No such target {}".format(self.targetIdentifier))
+        return game.send(ObjectRepairRequest(game.name(), object, target))
+    
+class RepairCompleteTranslator:
+    @classmethod
+    def Translate(cls, event):
+        return RepairCompleteEvent(event.RepairTarget.numericIdentifier(),
+                                   event.AmountRepaired, event.Message)
+        
+TechnicianAttributeInterface.COMMANDS=[ControlPlaneRepairCommand]
+GameMessageToNetworkMessage[ObjectRepairCompleteEvent]=RepairCompleteTranslator
+
+class ControlPlaneBuildBotCommand(BuildBotCommand):
+    def handle(self, game, object):
+        return game.send(CreateBotRequest(game.name(), object,
+                                          Directions[self.direction],
+                                          self.designName, self.name, self.address,
+                                          self.brainZip))
+        
+class BuildBotResponseTranslator:
+    @classmethod
+    def Translate(cls, response):
+        # value already be numeric... TODO: Probably shouldn't be though.
+        return BuildBotResponse(response.Value)
+    
+BotbuilderAttributeInterface.COMMANDS=[ControlPlaneBuildBotCommand]
+GameMessageToNetworkMessage[CreateBotResponse]=BuildBotResponseTranslator

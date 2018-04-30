@@ -4,18 +4,13 @@ Created on Feb 13, 2018
 @author: seth_
 '''
 
+from ..core.ObjectStore import GameObject
 from .Directions import Directions
 
-class ControlPlaneObject:
-    OBJECT_ID = 0 # LOADERS MUST RELOAD THIS VALUE!!!
-    
-    OBJECT_LOOKUP = {} # LOADERS MUST ALSO RELOAD THIS VALUE !!!
-    
+class ControlPlaneObject(GameObject):    
     def __init__(self, *attributes):
         self._attributes = {}
-        ControlPlaneObject.OBJECT_ID += 1
-        self._numericId = ControlPlaneObject.OBJECT_ID
-        self._identifier = "game_object_{}".format(self._numericId)
+        #self._identifier = "game_object_{}".format(self._numericId)
         for attribute in attributes:
             attributeClass = attribute.__class__
             
@@ -37,10 +32,14 @@ class ControlPlaneObject:
             attribute.initializeObject(self)
     
     def numericIdentifier(self):
-        return self._numericId
+        return self.gameId()
     
     def identifier(self):
-        return self._identifier
+        numeric = self.gameId()
+        base = self.__class__.__name__
+        if numeric is None:
+            return "Unknown {}".format(base)
+        return "{}-{}".format(base, numeric)
     
     def getAttribute(self, attributeClass):
         for aClass in attributeClass.__mro__:
@@ -170,3 +169,20 @@ class Observer(ControlPlaneObjectAttribute):
     
     def __str__(self):
         return "Observer({})".format(self._range)
+    
+class Technician(ControlPlaneObjectAttribute):
+    def __init__(self, repairAmount, repairTime):
+        super().__init__("technician")
+        self._repairAmount = repairAmount
+        self._repairTime = repairTime
+        
+    def repairAmount(self): return self._repairAmount
+    
+    def repairTime(self): return self._repairTime
+    
+    def rawData(self):
+        return [("repair_amount",self._repairAmount), 
+                ("repair_time", self._repairTime)]
+    
+    def __str__(self):
+        return "Technician({}hp/{}second(s))".format(self._repairAmount, self._repairTime)

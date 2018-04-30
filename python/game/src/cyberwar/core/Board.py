@@ -42,6 +42,15 @@ class DereferenceObjectPointerRequest(Request):
     def __init__(self, sender, objectType, objectId):
         super().__init__(sender, Board.LAYER_NAME, ObjectType=objectType, ObjectId=objectId)
         
+class DereferenceIngameObjectPointerRequest(Request):
+    def __init__(self, sender, objectId):
+        super().__init__(sender, Board.LAYER_NAME, ObjectId=objectId)
+        
+def LookupObject(game, objId):
+    resp = game.send(DereferenceIngameObjectPointerRequest("info", objId))
+    if not resp: return None
+    return resp.Value
+        
 # EVENTS
 class ChangeContentsEvent(Event):
     INSERT = "insert"
@@ -83,9 +92,9 @@ class RemoveResult(Response): pass
         
 class LocateResult(Response): pass
 
-class GetObjectPointerResponse(): pass
+class GetObjectPointerResponse(Response): pass
 
-class DereferenceObjectPointerResponse(): pass
+class DereferenceObjectPointerResponse(Response): pass
 
 
 class Board(Layer):
@@ -162,10 +171,15 @@ class Board(Layer):
                 return self._requestFailed(req, "No such object")
         elif isinstance(req, DereferenceObjectPointerRequest):
             try:
-                object = self._objectStore.load(objType, objId)
+                object = self._objectStore.load(req.ObjectType, req.ObjectId)
                 return self._requestAcknowledged(req, object, ackType=DereferenceObjectPointerResponse)
             except Exception as e:
                 return self._requestFailed(req, "No such object")
+        elif isinstance(req, DereferenceIngameObjectPointerRequest):
+            object = self._objectStore.getIngameObject(req.ObjectId)
+            if object:
+                return self._requestAcknowledged(req, object, ackType=DereferenceObjectPointerResponse)
+            else: return self._requestFailed(req, "No such object")
         return self._requestFailed(req, "Unknown Request {}".format(req))
         
     def validateLocation(self, x, y):
