@@ -1,3 +1,19 @@
+'''
+This file contains two classes:
+    - RemoteControlProtocol
+    - RemoteConsole.
+
+RemoteControlProtocol is a protocol in the application layer which helps us connect to the brain.
+RemoteConsole is used to handle the user input, send commands to the brain and show results from the brain.
+
+This script will initialize a RemoteConsole instance first. In __init__ method of RemoteConsole, a playground server
+will be created with a protocol factory which will create RemoteControlProtocols. Once a connection is made,
+the RemoteConsole instance will generate a protocol ID for the protocol instance. Also, the RemoteConsole instance will
+be binded to the protocol instance as a member variable. In this way, the RemoteConsole instance can interact with
+different protocol instances.
+'''
+
+
 import playground
 import time, asyncio, os
 
@@ -65,6 +81,11 @@ class RemoteConsole(CLIShell):
 
     def __init__(self, port, serverFamily="default"):
         super().__init__(prompt=self.STD_PROMPT)
+        # Each object (bot) needs a protocol instance to connect to the C&C.
+        # _protocols is a dict where the key is the _protocolId, and the value is the protocol (RemoteControlProtocol).
+        # _selected is used to identify which object is currently selected.
+        # A protocolId will be assigned to self._selected.
+        # Therefore, you can get the protocol for current selected object by self._protocols.get(self._selected, None).
         self._protocolId = 0
         self._selected = None
         self._protocols = {}
@@ -84,15 +105,23 @@ class RemoteConsole(CLIShell):
         downloadBrainHandler= Command("download_brain",
                                       "download the bot's current brain as a tar ball.",
                                       self._downloadBrainCommand)
+        # All cmdHandlers need to be registered
+        # so that the shell knows which handler to call when the user inputs a command.
+        # For more information, see playground.common.io.ui.CLIShell.
         self.registerCommand(switchobjectHandler)
         self.registerCommand(sendcommandHandler)
         self.registerCommand(listobjectsHandler)
         self.registerCommand(reprogramHandler)
         self.registerCommand(downloadBrainHandler)
 
+        # When creating the shell, a playground server using RemoteControlProtocol will be created.
+        # The default port is 10013 and you can specify the protocol stack (default, peep, pls).
         coro = playground.create_server(lambda: RemoteControlProtocol(self), port=port, family=serverFamily)
         asyncio.ensure_future(coro)
 
+    '''
+    Once a connection is made, a new protocol ID is assigned to the protocol,
+    '''
     def addConnection(self, protocol):
         self._protocolId += 1
         self._protocols[self._protocolId] = protocol
@@ -309,6 +338,7 @@ class RemoteConsole(CLIShell):
     def start(self):
         loop = asyncio.get_event_loop()
         self.registerExitListener(lambda reason: loop.call_later(1.0, self.stop))
+        # AdvancedStdio is used for tab-completion work.
         AdvancedStdio(self)
 
 
